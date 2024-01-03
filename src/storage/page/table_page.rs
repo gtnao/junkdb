@@ -70,6 +70,11 @@ impl TablePage {
         let count = self.tuple_count();
         (0..count).map(|i| self.get_tuple(i)).collect()
     }
+    pub fn page_id(&self) -> PageID {
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&self.data[PAGE_ID_OFFSET..(PAGE_ID_OFFSET + PAGE_ID_SIZE)]);
+        PageID(u64::from_le_bytes(bytes))
+    }
     fn free_space(&self) -> usize {
         let lower_offset = self.lower_offset();
         let upper_offset = self.upper_offset();
