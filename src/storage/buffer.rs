@@ -9,7 +9,10 @@ use crate::common::{PageID, PAGE_SIZE};
 
 use self::replacer::{LRUReplacer, Replacer};
 
-use super::{disk::DiskManager, page::Page};
+use super::{
+    disk::DiskManager,
+    page::{Page, PageType},
+};
 
 mod replacer;
 
@@ -90,6 +93,22 @@ impl BufferPoolManager {
             return Ok(());
         }
         Err(anyhow!("unpin page error"))
+    }
+    pub fn new_page(&mut self, page_type: PageType) -> Result<Arc<RwLock<Page>>> {
+        self.evict_page()?;
+        let page_id = self.disk_manager.allocate_page()?;
+        let page = Arc::new(RwLock::new(Page::new(page_id, page_type)));
+        let frame_id = self.pages.len();
+        self.pages.push(Buffer::new(page.clone()));
+        self.page_table.insert(page_id, frame_id);
+
+        if let Some(&frame_id) = self.page_table.get(&page_id) {
+            let buffer = &mut self.pages[frame_id];
+            buffer.add_pin_count();
+            self.replacer.pin(frame_id);
+            return Ok(buffer.page.clone());
+        }
+        Err(anyhow!("fetch page error"))
     }
     pub fn flush_all_pages(&mut self) -> Result<()> {
         let keys = self.page_table.keys().cloned().collect::<Vec<_>>();

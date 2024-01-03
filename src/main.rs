@@ -1,9 +1,15 @@
-use std::fs::File;
+use std::{
+    fs::File,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 use anyhow::Result;
 use toydb::{
     common::PageID,
-    storage::{buffer::BufferPoolManager, disk::DiskManager, page::table_page::TablePage},
+    storage::{
+        buffer::BufferPoolManager, disk::DiskManager, page::table_page::TablePage, table::TableHeap,
+    },
 };
 
 fn main() -> Result<()> {
@@ -16,21 +22,33 @@ fn main() -> Result<()> {
         disk_manager.write_page(page_id, &table_page.data)?;
     }
 
-    let mut buffer_pool_manager = BufferPoolManager::new(disk_manager);
-    let page = buffer_pool_manager.fetch_page(PageID(0))?;
+    let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(disk_manager)));
 
-    let tuples = page
-        .read()
+    let mut handles = vec![];
+    for i in 0..255 {
+        let buffer_pool_manager = buffer_pool_manager.clone();
+        let handle = thread::spawn(move || -> Result<()> {
+            let mut table = TableHeap::new(PageID(0), buffer_pool_manager);
+            table.insert(&[i; 16])?;
+            Ok(())
+        });
+        handles.push(handle);
+    }
+    for handle in handles {
+        handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("thread error"))??;
+    }
+
+    let table = TableHeap::new(PageID(0), buffer_pool_manager.clone());
+    for tuple in table.iter() {
+        println!("{:?}", tuple);
+    }
+
+    buffer_pool_manager
+        .lock()
         .map_err(|_| anyhow::anyhow!("lock error"))?
-        .with_table_page(|table_page| table_page.get_tuples());
-    println!("{:?}", tuples);
-
-    page.write()
-        .map_err(|_| anyhow::anyhow!("lock error"))?
-        .with_table_page_mut(|table_page| table_page.insert(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]))?;
-
-    buffer_pool_manager.unpin_page(PageID(0), true)?;
-    buffer_pool_manager.flush_all_pages()?;
+        .flush_all_pages()?;
 
     Ok(())
 }

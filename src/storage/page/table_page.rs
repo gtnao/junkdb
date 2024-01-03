@@ -2,9 +2,9 @@ use anyhow::{anyhow, Result};
 
 use crate::common::{PageID, INVALID_PAGE_ID, PAGE_SIZE};
 
-use super::{PAGE_ID_OFFSET, PAGE_ID_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE};
+use super::{PageType, PAGE_ID_OFFSET, PAGE_ID_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE};
 
-pub const TABLE_PAGE_PAGE_TYPE: u32 = 1;
+pub const TABLE_PAGE_PAGE_TYPE: PageType = PageType(1);
 
 const NEXT_PAGE_ID_OFFSET: usize = PAGE_ID_OFFSET + PAGE_ID_SIZE;
 const NEXT_PAGE_ID_SIZE: usize = 8;
@@ -26,7 +26,7 @@ impl TablePage {
     pub fn new(page_id: PageID) -> Self {
         let mut data = vec![0u8; PAGE_SIZE];
         data[PAGE_TYPE_OFFSET..(PAGE_TYPE_OFFSET + PAGE_TYPE_SIZE)]
-            .copy_from_slice(&TABLE_PAGE_PAGE_TYPE.to_le_bytes());
+            .copy_from_slice(&TABLE_PAGE_PAGE_TYPE.0.to_le_bytes());
         data[PAGE_ID_OFFSET..(PAGE_ID_OFFSET + PAGE_ID_SIZE)]
             .copy_from_slice(&page_id.0.to_le_bytes());
         data[NEXT_PAGE_ID_OFFSET..(NEXT_PAGE_ID_OFFSET + NEXT_PAGE_ID_SIZE)]
@@ -70,10 +70,30 @@ impl TablePage {
         let count = self.tuple_count();
         (0..count).map(|i| self.get_tuple(i)).collect()
     }
+    pub fn get_tuple(&self, index: usize) -> Box<[u8]> {
+        let offset = self.line_pointer_offset(index) as usize;
+        let size = self.line_pointer_size(index) as usize;
+        self.data[offset..(offset + size)].into()
+    }
+    pub fn tuple_count(&self) -> usize {
+        let lower_offset = self.lower_offset();
+        (lower_offset as usize - HEADER_SIZE) / LINE_POINTER_SIZE
+    }
     pub fn page_id(&self) -> PageID {
         let mut bytes = [0u8; 8];
         bytes.copy_from_slice(&self.data[PAGE_ID_OFFSET..(PAGE_ID_OFFSET + PAGE_ID_SIZE)]);
         PageID(u64::from_le_bytes(bytes))
+    }
+    pub fn next_page_id(&self) -> PageID {
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(
+            &self.data[NEXT_PAGE_ID_OFFSET..(NEXT_PAGE_ID_OFFSET + NEXT_PAGE_ID_SIZE)],
+        );
+        PageID(u64::from_le_bytes(bytes))
+    }
+    pub fn set_next_page_id(&mut self, page_id: PageID) {
+        self.data[NEXT_PAGE_ID_OFFSET..(NEXT_PAGE_ID_OFFSET + NEXT_PAGE_ID_SIZE)]
+            .copy_from_slice(&page_id.0.to_le_bytes());
     }
     fn free_space(&self) -> usize {
         let lower_offset = self.lower_offset();
@@ -93,15 +113,6 @@ impl TablePage {
             &self.data[UPPER_OFFSET_OFFSET..(UPPER_OFFSET_OFFSET + UPPER_OFFSET_SIZE)],
         );
         u32::from_le_bytes(bytes)
-    }
-    fn tuple_count(&self) -> usize {
-        let lower_offset = self.lower_offset();
-        (lower_offset as usize - HEADER_SIZE) / LINE_POINTER_SIZE
-    }
-    fn get_tuple(&self, index: usize) -> Box<[u8]> {
-        let offset = self.line_pointer_offset(index) as usize;
-        let size = self.line_pointer_size(index) as usize;
-        self.data[offset..(offset + size)].into()
     }
     fn line_pointer_offset(&self, index: usize) -> u32 {
         let offset = HEADER_SIZE + index * LINE_POINTER_SIZE;
