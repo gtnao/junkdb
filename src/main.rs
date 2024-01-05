@@ -10,6 +10,7 @@ use prettytable::{Cell, Row, Table};
 use toydb::{
     catalog::{Column, DataType, Schema},
     common::PageID,
+    concurrency::{IsolationLevel, TransactionManager},
     storage::{
         buffer::BufferPoolManager, disk::DiskManager, page::table_page::TablePage, table::TableHeap,
     },
@@ -44,11 +45,18 @@ fn main() -> Result<()> {
         ],
     };
 
+    // components
     let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(disk_manager)));
+    let transaction_manager = Arc::new(Mutex::new(TransactionManager::new(
+        // IsolationLevel::ReadCommitted,
+        IsolationLevel::RepeatableRead,
+    )));
 
+    // sample inserts
     let mut handles = vec![];
     for i in 0..20 {
         let buffer_pool_manager = buffer_pool_manager.clone();
+        let transaction_manager = transaction_manager.clone();
         let handle = thread::spawn(move || -> Result<()> {
             let values = vec![
                 Value::Int(IntValue(i as i32)),
@@ -60,8 +68,21 @@ fn main() -> Result<()> {
                 .map(|v| v.serialize())
                 .flatten()
                 .collect::<Vec<u8>>();
-            let mut table = TableHeap::new(PageID(0), buffer_pool_manager);
+            let txn_id = transaction_manager
+                .lock()
+                .map_err(|_| anyhow::anyhow!("lock error"))?
+                .begin();
+            let mut table = TableHeap::new(
+                PageID(0),
+                buffer_pool_manager,
+                transaction_manager.clone(),
+                txn_id,
+            );
             table.insert(&bytes)?;
+            transaction_manager
+                .lock()
+                .map_err(|_| anyhow::anyhow!("lock error"))?
+                .commit(txn_id);
             Ok(())
         });
         handles.push(handle);
@@ -70,6 +91,40 @@ fn main() -> Result<()> {
         handle
             .join()
             .map_err(|_| anyhow::anyhow!("thread error"))??;
+    }
+
+    // read
+    let txn_id = transaction_manager
+        .lock()
+        .map_err(|_| anyhow::anyhow!("lock error"))?
+        .begin();
+    {
+        // other write
+        let other_txn_id = transaction_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .begin();
+        let values = vec![
+            Value::Int(IntValue(100 as i32)),
+            Value::Varchar(VarcharValue(format!("other_name"))),
+            Value::Int(IntValue(30)),
+        ];
+        let bytes = values
+            .iter()
+            .map(|v| v.serialize())
+            .flatten()
+            .collect::<Vec<u8>>();
+        let mut table = TableHeap::new(
+            PageID(0),
+            buffer_pool_manager.clone(),
+            transaction_manager.clone(),
+            other_txn_id,
+        );
+        table.insert(&bytes)?;
+        transaction_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .commit(other_txn_id);
     }
 
     let mut table_view = Table::new();
@@ -81,10 +136,15 @@ fn main() -> Result<()> {
             .collect::<Vec<Cell>>(),
     ));
     let mut size = 0;
-    let table = TableHeap::new(PageID(0), buffer_pool_manager.clone());
+    let table = TableHeap::new(
+        PageID(0),
+        buffer_pool_manager.clone(),
+        transaction_manager.clone(),
+        txn_id,
+    );
     for tuple in table.iter() {
         size += 1;
-        let values = Value::deserialize_values(&schema, &tuple);
+        let values = Value::deserialize_values(&schema, &tuple.values_data());
         let cells = values
             .iter()
             .map(|v| match v {
@@ -97,6 +157,7 @@ fn main() -> Result<()> {
     table_view.printstd();
     println!("table size: {}", size);
 
+    // shutdown
     buffer_pool_manager
         .lock()
         .map_err(|_| anyhow::anyhow!("lock error"))?

@@ -1,4 +1,7 @@
-use crate::common::{PageID, INVALID_PAGE_ID};
+use crate::{
+    common::{PageID, INVALID_PAGE_ID},
+    storage::tuple::Tuple,
+};
 
 use super::TableHeap;
 
@@ -22,8 +25,28 @@ impl TableHeap {
 }
 
 impl Iterator for TableIterator<'_> {
-    type Item = Box<[u8]>;
+    type Item = Tuple;
     fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let tuple = self.next_internal();
+            match tuple {
+                Some(tuple) => {
+                    if self.heap.transaction_manager.lock().ok()?.visible(
+                        self.heap.txn_id,
+                        tuple.xmin(),
+                        tuple.xmax(),
+                    ) {
+                        return Some(tuple);
+                    }
+                }
+                None => return None,
+            }
+        }
+    }
+}
+
+impl TableIterator<'_> {
+    fn next_internal(&mut self) -> Option<Tuple> {
         if self.tuple_index >= self.tuples.len() {
             let next_page_id = self.next_page_id?;
             let page = self
@@ -55,7 +78,7 @@ impl Iterator for TableIterator<'_> {
         if self.tuple_index >= self.tuples.len() {
             return None;
         }
-        let tuple = self.tuples[self.tuple_index].clone();
+        let tuple = Tuple::new(self.tuples[self.tuple_index].clone());
         self.tuple_index += 1;
         Some(tuple)
     }
