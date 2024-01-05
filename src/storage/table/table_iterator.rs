@@ -1,6 +1,6 @@
 use crate::{
     common::{PageID, INVALID_PAGE_ID},
-    storage::tuple::Tuple,
+    tuple::Tuple,
 };
 
 use super::TableHeap;

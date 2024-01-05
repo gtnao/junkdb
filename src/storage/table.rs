@@ -6,10 +6,11 @@ use crate::{
     buffer::BufferPoolManager,
     common::{PageID, TransactionID, INVALID_PAGE_ID, INVALID_TRANSACTION_ID},
     concurrency::TransactionManager,
+    tuple::Tuple,
     value::Value,
 };
 
-use super::{page::table_page::TABLE_PAGE_PAGE_TYPE, tuple::Tuple};
+use super::page::table_page::TABLE_PAGE_PAGE_TYPE;
 
 pub mod table_iterator;
 
