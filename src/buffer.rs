@@ -8,7 +8,7 @@ use anyhow::{anyhow, Result};
 use crate::{
     common::{PageID, PAGE_SIZE},
     disk::DiskManager,
-    storage::page::{Page, PageType},
+    page::{Page, PageType},
 };
 
 struct Frame {
@@ -214,7 +214,7 @@ impl LRUReplacer {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::page::table_page::TABLE_PAGE_PAGE_TYPE;
+    use crate::page::table_page::TABLE_PAGE_PAGE_TYPE;
 
     use super::*;
 

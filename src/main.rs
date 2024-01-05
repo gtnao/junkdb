@@ -13,7 +13,8 @@ use toydb::{
     common::PageID,
     concurrency::{IsolationLevel, TransactionManager},
     disk::DiskManager,
-    storage::{page::table_page::TablePage, table::TableHeap},
+    page::table_page::TablePage,
+    storage::table::TableHeap,
     value::{IntValue, Value, VarcharValue},
 };
 

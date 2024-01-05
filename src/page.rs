@@ -9,7 +9,7 @@ const PAGE_TYPE_SIZE: usize = 4;
 const PAGE_ID_OFFSET: usize = PAGE_TYPE_OFFSET + PAGE_TYPE_SIZE;
 const PAGE_ID_SIZE: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PageType(pub u32);
 
 pub enum Page {

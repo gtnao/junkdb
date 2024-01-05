@@ -3,6 +3,8 @@ pub mod catalog;
 pub mod common;
 pub mod concurrency;
 pub mod disk;
+pub mod page;
 pub mod storage;
+pub mod table;
 pub mod tuple;
 pub mod value;
