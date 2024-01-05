@@ -12,7 +12,8 @@ use toydb::{
     catalog::{Column, DataType, Schema},
     common::PageID,
     concurrency::{IsolationLevel, TransactionManager},
-    storage::{disk::DiskManager, page::table_page::TablePage, table::TableHeap},
+    disk::DiskManager,
+    storage::{page::table_page::TablePage, table::TableHeap},
     value::{IntValue, Value, VarcharValue},
 };
 

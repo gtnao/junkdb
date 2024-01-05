@@ -7,10 +7,8 @@ use anyhow::{anyhow, Result};
 
 use crate::{
     common::{PageID, PAGE_SIZE},
-    storage::{
-        disk::DiskManager,
-        page::{Page, PageType},
-    },
+    disk::DiskManager,
+    storage::page::{Page, PageType},
 };
 
 struct Frame {
