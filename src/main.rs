@@ -63,11 +63,6 @@ fn main() -> Result<()> {
                 Value::Varchar(VarcharValue(format!("name{}", i))),
                 Value::Int(IntValue(i as i32 * 10)),
             ];
-            let bytes = values
-                .iter()
-                .map(|v| v.serialize())
-                .flatten()
-                .collect::<Vec<u8>>();
             let txn_id = transaction_manager
                 .lock()
                 .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -78,7 +73,7 @@ fn main() -> Result<()> {
                 transaction_manager.clone(),
                 txn_id,
             );
-            table.insert(&bytes)?;
+            table.insert(&values)?;
             transaction_manager
                 .lock()
                 .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -109,18 +104,13 @@ fn main() -> Result<()> {
             Value::Varchar(VarcharValue(format!("other_name"))),
             Value::Int(IntValue(30)),
         ];
-        let bytes = values
-            .iter()
-            .map(|v| v.serialize())
-            .flatten()
-            .collect::<Vec<u8>>();
         let mut table = TableHeap::new(
             PageID(0),
             buffer_pool_manager.clone(),
             transaction_manager.clone(),
             other_txn_id,
         );
-        table.insert(&bytes)?;
+        table.insert(&values)?;
         transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -144,7 +134,7 @@ fn main() -> Result<()> {
     );
     for tuple in table.iter() {
         size += 1;
-        let values = Value::deserialize_values(&schema, &tuple.values_data());
+        let values = tuple.values(&schema);
         let cells = values
             .iter()
             .map(|v| match v {

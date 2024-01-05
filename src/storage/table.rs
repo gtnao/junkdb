@@ -5,6 +5,7 @@ use anyhow::Result;
 use crate::{
     common::{PageID, TransactionID, INVALID_PAGE_ID, INVALID_TRANSACTION_ID},
     concurrency::TransactionManager,
+    value::Value,
 };
 
 use super::{buffer::BufferPoolManager, page::table_page::TABLE_PAGE_PAGE_TYPE, tuple::Tuple};
@@ -32,8 +33,8 @@ impl TableHeap {
             txn_id,
         }
     }
-    pub fn insert(&mut self, data: &[u8]) -> Result<()> {
-        let tuple_data = Tuple::serialize(self.txn_id, INVALID_TRANSACTION_ID, data);
+    pub fn insert(&mut self, values: &[Value]) -> Result<()> {
+        let tuple_data = Tuple::serialize(self.txn_id, INVALID_TRANSACTION_ID, &values);
         let mut page_id = self.first_page_id;
         loop {
             let page = self

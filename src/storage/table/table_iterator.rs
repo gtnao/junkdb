@@ -78,7 +78,7 @@ impl TableIterator<'_> {
         if self.tuple_index >= self.tuples.len() {
             return None;
         }
-        let tuple = Tuple::new(self.tuples[self.tuple_index].clone());
+        let tuple = Tuple::new(&self.tuples[self.tuple_index]);
         self.tuple_index += 1;
         Some(tuple)
     }
