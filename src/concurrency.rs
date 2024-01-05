@@ -59,21 +59,23 @@ impl TransactionManager {
         self.active_transactions.remove(&txn_id);
     }
 
-    pub fn visible(
+    pub fn is_visible(
         &self,
         txn_id: TransactionID,
         x_min: TransactionID,
         x_max: TransactionID,
     ) -> bool {
         match self.isolation_level {
-            IsolationLevel::ReadCommitted => self.visible_with_read_committed(txn_id, x_min, x_max),
+            IsolationLevel::ReadCommitted => {
+                self.is_visible_with_read_committed(txn_id, x_min, x_max)
+            }
             IsolationLevel::RepeatableRead => {
                 self.is_visible_with_repeatable_read(txn_id, x_min, x_max)
             }
         }
     }
 
-    fn visible_with_read_committed(
+    fn is_visible_with_read_committed(
         &self,
         txn_id: TransactionID,
         x_min: TransactionID,
@@ -117,9 +119,9 @@ impl TransactionManager {
             return false;
         };
         let x_min_visible =
-            self.is_visible_txn_id_with_snapshot(txn_id, x_min, &transaction.snapshot);
+            self.is_valid_txn_id_with_snapshot(txn_id, x_min, &transaction.snapshot);
         let x_max_visible =
-            self.is_visible_txn_id_with_snapshot(txn_id, x_max, &transaction.snapshot);
+            self.is_valid_txn_id_with_snapshot(txn_id, x_max, &transaction.snapshot);
 
         if x_min_visible {
             if x_max_visible {
@@ -131,7 +133,7 @@ impl TransactionManager {
         false
     }
 
-    fn is_visible_txn_id_with_snapshot(
+    fn is_valid_txn_id_with_snapshot(
         &self,
         txn_id: TransactionID,
         target_txn_id: TransactionID,
@@ -223,38 +225,38 @@ mod tests {
         let txn_id_1 = transaction_manager.begin();
         // self insert
         assert_eq!(
-            transaction_manager.visible(txn_id_1, txn_id_1, INVALID_TRANSACTION_ID),
+            transaction_manager.is_visible(txn_id_1, txn_id_1, INVALID_TRANSACTION_ID),
             true
         );
         // self delete
         assert_eq!(
-            transaction_manager.visible(txn_id_1, txn_id_1, txn_id_1),
+            transaction_manager.is_visible(txn_id_1, txn_id_1, txn_id_1),
             false
         );
 
         let txn_id_2 = transaction_manager.begin();
         // other insert
         assert_eq!(
-            transaction_manager.visible(txn_id_2, txn_id_1, INVALID_TRANSACTION_ID),
+            transaction_manager.is_visible(txn_id_2, txn_id_1, INVALID_TRANSACTION_ID),
             false
         );
         // other insert after commit
         transaction_manager.commit(txn_id_1);
         assert_eq!(
-            transaction_manager.visible(txn_id_2, txn_id_1, INVALID_TRANSACTION_ID),
+            transaction_manager.is_visible(txn_id_2, txn_id_1, INVALID_TRANSACTION_ID),
             true
         );
 
         let txn_id_3 = transaction_manager.begin();
         // other delete
         assert_eq!(
-            transaction_manager.visible(txn_id_2, txn_id_1, txn_id_3),
+            transaction_manager.is_visible(txn_id_2, txn_id_1, txn_id_3),
             true
         );
         // other delete after commit
         transaction_manager.commit(txn_id_3);
         assert_eq!(
-            transaction_manager.visible(txn_id_2, txn_id_1, txn_id_3),
+            transaction_manager.is_visible(txn_id_2, txn_id_1, txn_id_3),
             false
         );
     }
@@ -275,18 +277,18 @@ mod tests {
 
         // self insert
         assert_eq!(
-            transaction_manager.visible(current_txn_id, current_txn_id, INVALID_TRANSACTION_ID),
+            transaction_manager.is_visible(current_txn_id, current_txn_id, INVALID_TRANSACTION_ID),
             true
         );
         // self delete
         assert_eq!(
-            transaction_manager.visible(current_txn_id, current_txn_id, current_txn_id),
+            transaction_manager.is_visible(current_txn_id, current_txn_id, current_txn_id),
             false
         );
 
         // before insert commit
         assert_eq!(
-            transaction_manager.visible(
+            transaction_manager.is_visible(
                 current_txn_id,
                 before_commit_txn_id,
                 INVALID_TRANSACTION_ID
@@ -295,12 +297,16 @@ mod tests {
         );
         // before delete commit
         assert_eq!(
-            transaction_manager.visible(current_txn_id, before_commit_txn_id, before_commit_txn_id),
+            transaction_manager.is_visible(
+                current_txn_id,
+                before_commit_txn_id,
+                before_commit_txn_id
+            ),
             false
         );
         // before insert abort
         assert_eq!(
-            transaction_manager.visible(
+            transaction_manager.is_visible(
                 current_txn_id,
                 before_abort_txn_id,
                 INVALID_TRANSACTION_ID
@@ -309,46 +315,50 @@ mod tests {
         );
         // before delete abort
         assert_eq!(
-            transaction_manager.visible(current_txn_id, before_commit_txn_id, before_abort_txn_id),
+            transaction_manager.is_visible(
+                current_txn_id,
+                before_commit_txn_id,
+                before_abort_txn_id
+            ),
             true
         );
 
         // running insert
         assert_eq!(
-            transaction_manager.visible(current_txn_id, running_txn_id, INVALID_TRANSACTION_ID),
+            transaction_manager.is_visible(current_txn_id, running_txn_id, INVALID_TRANSACTION_ID),
             false
         );
         // running delete
         assert_eq!(
-            transaction_manager.visible(current_txn_id, before_commit_txn_id, running_txn_id),
+            transaction_manager.is_visible(current_txn_id, before_commit_txn_id, running_txn_id),
             true
         );
         // running insert after commit
         transaction_manager.commit(running_txn_id);
         assert_eq!(
-            transaction_manager.visible(current_txn_id, running_txn_id, INVALID_TRANSACTION_ID),
+            transaction_manager.is_visible(current_txn_id, running_txn_id, INVALID_TRANSACTION_ID),
             false
         );
         // running delete after commit
         assert_eq!(
-            transaction_manager.visible(current_txn_id, before_commit_txn_id, running_txn_id),
+            transaction_manager.is_visible(current_txn_id, before_commit_txn_id, running_txn_id),
             true
         );
 
         // after insert
         assert_eq!(
-            transaction_manager.visible(current_txn_id, after_txn_id, INVALID_TRANSACTION_ID),
+            transaction_manager.is_visible(current_txn_id, after_txn_id, INVALID_TRANSACTION_ID),
             false
         );
         // after delete
         assert_eq!(
-            transaction_manager.visible(current_txn_id, before_commit_txn_id, after_txn_id),
+            transaction_manager.is_visible(current_txn_id, before_commit_txn_id, after_txn_id),
             true
         );
         // after insert after commit
         transaction_manager.commit(after_txn_id);
         assert_eq!(
-            transaction_manager.visible(current_txn_id, after_txn_id, INVALID_TRANSACTION_ID),
+            transaction_manager.is_visible(current_txn_id, after_txn_id, INVALID_TRANSACTION_ID),
             false
         );
     }

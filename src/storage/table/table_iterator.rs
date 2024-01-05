@@ -31,7 +31,7 @@ impl Iterator for TableIterator<'_> {
             let tuple = self.next_internal();
             match tuple {
                 Some(tuple) => {
-                    if self.heap.transaction_manager.lock().ok()?.visible(
+                    if self.heap.transaction_manager.lock().ok()?.is_visible(
                         self.heap.txn_id,
                         tuple.xmin(),
                         tuple.xmax(),
