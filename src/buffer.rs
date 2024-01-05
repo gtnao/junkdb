@@ -259,19 +259,40 @@ mod tests {
         buffer_pool_manager.unpin_page(PageID(1), true)?;
         buffer_pool_manager.new_page(TABLE_PAGE_PAGE_TYPE)?;
         buffer_pool_manager.unpin_page(PageID(2), true)?;
-        buffer_pool_manager.fetch_page(PageID(1))?;
+        let page1 = buffer_pool_manager.fetch_page(PageID(1))?;
+        assert_eq!(
+            page1.read().map_err(|_| anyhow!("lock error"))?.page_id(),
+            PageID(1)
+        );
         buffer_pool_manager.unpin_page(PageID(3), true)?;
         buffer_pool_manager.unpin_page(PageID(4), true)?;
         buffer_pool_manager.unpin_page(PageID(1), false)?;
         buffer_pool_manager.shutdown()?;
 
+        // restart
         let disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
         let mut buffer_pool_manager = BufferPoolManager::new(disk_manager, 3);
-        buffer_pool_manager.fetch_page(PageID(1))?;
-        buffer_pool_manager.fetch_page(PageID(2))?;
-        buffer_pool_manager.fetch_page(PageID(3))?;
+        let page1 = buffer_pool_manager.fetch_page(PageID(1))?;
+        let page2 = buffer_pool_manager.fetch_page(PageID(2))?;
+        let page3 = buffer_pool_manager.fetch_page(PageID(3))?;
+        assert_eq!(
+            page1.read().map_err(|_| anyhow!("lock error"))?.page_id(),
+            PageID(1)
+        );
+        assert_eq!(
+            page2.read().map_err(|_| anyhow!("lock error"))?.page_id(),
+            PageID(2)
+        );
+        assert_eq!(
+            page3.read().map_err(|_| anyhow!("lock error"))?.page_id(),
+            PageID(3)
+        );
         buffer_pool_manager.unpin_page(PageID(1), false)?;
-        buffer_pool_manager.fetch_page(PageID(4))?;
+        let page4 = buffer_pool_manager.fetch_page(PageID(4))?;
+        assert_eq!(
+            page4.read().map_err(|_| anyhow!("lock error"))?.page_id(),
+            PageID(4)
+        );
         buffer_pool_manager.unpin_page(PageID(2), false)?;
         buffer_pool_manager.unpin_page(PageID(3), false)?;
         buffer_pool_manager.unpin_page(PageID(4), false)?;
