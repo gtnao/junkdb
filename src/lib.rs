@@ -1,3 +1,4 @@
+pub mod buffer;
 pub mod catalog;
 pub mod common;
 pub mod concurrency;

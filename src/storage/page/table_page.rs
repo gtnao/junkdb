@@ -39,8 +39,8 @@ impl TablePage {
             data: data.into_boxed_slice(),
         }
     }
-    pub fn from_data(data: Box<[u8]>) -> Self {
-        TablePage { data }
+    pub fn from_data(data: &[u8]) -> Self {
+        TablePage { data: data.into() }
     }
     pub fn insert(&mut self, data: &[u8]) -> Result<()> {
         // TODO: too large for one page

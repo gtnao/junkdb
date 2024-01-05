@@ -38,7 +38,7 @@ impl Page {
             _ => panic!("page type not supported"),
         }
     }
-    pub fn from_data(data: Box<[u8]>) -> Self {
+    pub fn from_data(data: &[u8]) -> Self {
         Page::Table(TablePage::from_data(data))
     }
     pub fn data(&self) -> &[u8] {

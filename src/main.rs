@@ -8,12 +8,11 @@ extern crate prettytable;
 use anyhow::Result;
 use prettytable::{Cell, Row, Table};
 use toydb::{
+    buffer::BufferPoolManager,
     catalog::{Column, DataType, Schema},
     common::PageID,
     concurrency::{IsolationLevel, TransactionManager},
-    storage::{
-        buffer::BufferPoolManager, disk::DiskManager, page::table_page::TablePage, table::TableHeap,
-    },
+    storage::{disk::DiskManager, page::table_page::TablePage, table::TableHeap},
     value::{IntValue, Value, VarcharValue},
 };
 
@@ -46,7 +45,7 @@ fn main() -> Result<()> {
     };
 
     // components
-    let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(disk_manager)));
+    let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(disk_manager, 10)));
     let transaction_manager = Arc::new(Mutex::new(TransactionManager::new(
         // IsolationLevel::ReadCommitted,
         IsolationLevel::RepeatableRead,
@@ -68,7 +67,7 @@ fn main() -> Result<()> {
                 .map_err(|_| anyhow::anyhow!("lock error"))?
                 .begin();
             let mut table = TableHeap::new(
-                PageID(0),
+                PageID(1),
                 buffer_pool_manager,
                 transaction_manager.clone(),
                 txn_id,
@@ -105,7 +104,7 @@ fn main() -> Result<()> {
             Value::Int(IntValue(30)),
         ];
         let mut table = TableHeap::new(
-            PageID(0),
+            PageID(1),
             buffer_pool_manager.clone(),
             transaction_manager.clone(),
             other_txn_id,
@@ -127,7 +126,7 @@ fn main() -> Result<()> {
     ));
     let mut size = 0;
     let table = TableHeap::new(
-        PageID(0),
+        PageID(1),
         buffer_pool_manager.clone(),
         transaction_manager.clone(),
         txn_id,
@@ -151,7 +150,7 @@ fn main() -> Result<()> {
     buffer_pool_manager
         .lock()
         .map_err(|_| anyhow::anyhow!("lock error"))?
-        .flush_all_pages()?;
+        .shutdown()?;
 
     Ok(())
 }
