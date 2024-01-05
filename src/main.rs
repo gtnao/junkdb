@@ -14,7 +14,7 @@ use toydb::{
     concurrency::{IsolationLevel, TransactionManager},
     disk::DiskManager,
     page::table_page::TablePage,
-    storage::table::TableHeap,
+    table::TableHeap,
     value::{IntValue, Value, VarcharValue},
 };
 
