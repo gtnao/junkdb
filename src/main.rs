@@ -80,8 +80,8 @@ fn main() -> Result<()> {
                 txn_id,
             );
             table.insert(&values)?;
-            table.delete(RID(PageID(1), 0))?;
-            table.delete(RID(PageID(1), 1))?;
+            // table.delete(RID(PageID(1), 0))?;
+            // table.delete(RID(PageID(1), 1))?;
             transaction_manager
                 .lock()
                 .map_err(|_| anyhow::anyhow!("lock error"))?

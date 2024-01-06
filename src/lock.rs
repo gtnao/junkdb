@@ -114,13 +114,13 @@ mod tests {
                 .read()
                 .map_err(|_| anyhow!("lock error"))?
                 .lock(rid, txn_id)?;
-            println!("locked txn_id: {:?}, rid: {:?}", txn_id, rid);
+            // println!("locked txn_id: {:?}, rid: {:?}", txn_id, rid);
             thread::sleep(std::time::Duration::from_millis(500));
             lock_manager_clone
                 .read()
                 .map_err(|_| anyhow!("lock error"))?
                 .unlock(txn_id)?;
-            println!("unlocked txn_id: {:?}", txn_id);
+            // println!("unlocked txn_id: {:?}", txn_id);
             Ok(())
         });
         thread::sleep(std::time::Duration::from_millis(100));
@@ -128,19 +128,19 @@ mod tests {
         for i in 2..12 {
             let lock_manager = lock_manager.clone();
             let handle = thread::spawn(move || -> Result<()> {
-                println!("start txn_id: {:?}", i);
+                // println!("start txn_id: {:?}", i);
                 let txn_id = TransactionID(i);
                 let rid = RID(PageID(1), 1);
                 lock_manager
                     .read()
                     .map_err(|_| anyhow!("lock error"))?
                     .lock(rid, txn_id)?;
-                println!("locked txn_id: {:?}, rid: {:?}", txn_id, rid);
+                // println!("locked txn_id: {:?}, rid: {:?}", txn_id, rid);
                 lock_manager
                     .read()
                     .map_err(|_| anyhow!("lock error"))?
                     .unlock(txn_id)?;
-                println!("unlocked txn_id: {:?}", txn_id);
+                // println!("unlocked txn_id: {:?}", txn_id);
                 Ok(())
             });
             handles.push(handle);

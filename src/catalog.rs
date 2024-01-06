@@ -12,13 +12,16 @@ use crate::{
     value::{IntValue, Value, VarcharValue},
 };
 
+#[derive(Debug, Clone)]
 pub struct Schema {
     pub columns: Vec<Column>,
 }
+#[derive(Debug, Clone)]
 pub struct Column {
     pub name: String,
     pub data_type: DataType,
 }
+#[derive(Debug, Clone)]
 pub enum DataType {
     Int,
     Varchar,

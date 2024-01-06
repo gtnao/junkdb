@@ -114,15 +114,15 @@ impl TableHeap {
     }
 }
 
-pub struct TableIterator<'a> {
-    heap: &'a TableHeap,
+pub struct TableIterator {
+    heap: TableHeap,
     next_page_id: Option<PageID>,
     tuples: Vec<Box<[u8]>>,
     tuple_index: usize,
 }
 
 impl TableHeap {
-    pub fn iter(&self) -> TableIterator {
+    pub fn iter(self) -> TableIterator {
         let page_id = self.first_page_id;
         TableIterator {
             heap: self,
@@ -133,7 +133,7 @@ impl TableHeap {
     }
 }
 
-impl Iterator for TableIterator<'_> {
+impl Iterator for TableIterator {
     type Item = Tuple;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -154,7 +154,7 @@ impl Iterator for TableIterator<'_> {
     }
 }
 
-impl TableIterator<'_> {
+impl TableIterator {
     fn next_internal(&mut self) -> Option<Tuple> {
         if self.tuple_index >= self.tuples.len() {
             let next_page_id = self.next_page_id?;
