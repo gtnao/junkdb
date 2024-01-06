@@ -1,6 +1,9 @@
 use anyhow::{anyhow, Result};
 
-use crate::common::{PageID, INVALID_PAGE_ID, PAGE_SIZE};
+use crate::{
+    common::{PageID, TransactionID, INVALID_PAGE_ID, PAGE_SIZE},
+    tuple::Tuple,
+};
 
 use super::{PageType, PAGE_ID_OFFSET, PAGE_ID_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE};
 
@@ -65,6 +68,13 @@ impl TablePage {
         self.data[(next_upper_offset as usize)..(upper_offset as usize)].copy_from_slice(data);
 
         Ok(())
+    }
+    pub fn delete(&mut self, index: u32, txn_id: TransactionID) {
+        let offset = self.line_pointer_offset(index as usize) as usize;
+        let size = self.line_pointer_size(index as usize) as usize;
+        let mut tuple = Tuple::new(&self.data[offset..(offset + size)]);
+        tuple.set_xmax(txn_id);
+        self.data[offset..(offset + size)].copy_from_slice(&tuple.data);
     }
     pub fn get_tuples(&self) -> Vec<Box<[u8]>> {
         let count = self.tuple_count();

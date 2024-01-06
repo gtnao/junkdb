@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::{
     buffer::BufferPoolManager,
-    common::{PageID, TransactionID, INVALID_PAGE_ID, INVALID_TRANSACTION_ID},
+    common::{PageID, TransactionID, INVALID_PAGE_ID, INVALID_TRANSACTION_ID, RID},
     concurrency::TransactionManager,
     page::table_page::TABLE_PAGE_PAGE_TYPE,
     tuple::Tuple,
@@ -88,6 +88,20 @@ impl TableHeap {
                 page_id = next_page_id;
             }
         }
+        Ok(())
+    }
+
+    pub fn delete(&mut self, rid: RID) -> Result<()> {
+        let page_id = rid.0;
+        let tuple_index = rid.1;
+        let page = self
+            .buffer_pool_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .fetch_page(page_id)?;
+        page.write()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .with_table_page_mut(|table_page| table_page.delete(tuple_index, self.txn_id));
         Ok(())
     }
 }

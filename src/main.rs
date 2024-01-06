@@ -10,7 +10,7 @@ use prettytable::{Cell, Row, Table};
 use toydb::{
     buffer::BufferPoolManager,
     catalog::{Column, DataType, Schema},
-    common::PageID,
+    common::{PageID, RID},
     concurrency::{IsolationLevel, TransactionManager},
     disk::DiskManager,
     page::table_page::TablePage,
@@ -75,6 +75,8 @@ fn main() -> Result<()> {
                 txn_id,
             );
             table.insert(&values)?;
+            table.delete(RID(PageID(1), 0))?;
+            table.delete(RID(PageID(1), 1))?;
             transaction_manager
                 .lock()
                 .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -107,6 +109,7 @@ fn main() -> Result<()> {
             txn_id,
         );
         table.insert(&values)?;
+        table.delete(RID(PageID(1), 2))?;
         transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?

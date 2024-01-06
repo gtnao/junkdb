@@ -1,7 +1,7 @@
 use crate::{catalog::Schema, common::TransactionID, value::Value};
 
 pub struct Tuple {
-    data: Box<[u8]>,
+    pub data: Box<[u8]>,
 }
 
 const XMIN_OFFSET: usize = 0;
@@ -25,6 +25,10 @@ impl Tuple {
         let mut bytes = [0; XMAX_SIZE];
         bytes.copy_from_slice(&self.data[XMAX_OFFSET..XMAX_OFFSET + XMAX_SIZE]);
         TransactionID(u64::from_le_bytes(bytes))
+    }
+
+    pub fn set_xmax(&mut self, xmax: TransactionID) {
+        self.data[XMAX_OFFSET..XMAX_OFFSET + XMAX_SIZE].copy_from_slice(&xmax.0.to_le_bytes());
     }
 
     pub fn values(&self, schema: &Schema) -> Vec<Value> {
