@@ -89,6 +89,30 @@ fn main() -> Result<()> {
             .map_err(|_| anyhow::anyhow!("thread error"))??;
     }
 
+    {
+        // abort
+        let txn_id = transaction_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .begin();
+        let values = vec![
+            Value::Int(IntValue(999 as i32)),
+            Value::Varchar(VarcharValue(format!("this is aborted"))),
+            Value::Int(IntValue(100)),
+        ];
+        let mut table = TableHeap::new(
+            PageID(1),
+            buffer_pool_manager.clone(),
+            transaction_manager.clone(),
+            txn_id,
+        );
+        table.insert(&values)?;
+        transaction_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .abort(txn_id);
+    }
+
     // read
     let txn_id = transaction_manager
         .lock()
