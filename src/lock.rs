@@ -79,11 +79,7 @@ impl LockManager {
             .rids_by_txn_id
             .write()
             .map_err(|_| anyhow!("lock error"))?;
-        for rid in rids_map
-            .get(&transaction_id)
-            .ok_or_else(|| anyhow!("lock error"))?
-            .iter()
-        {
+        for rid in rids_map.get(&transaction_id).unwrap_or(&vec![]).iter() {
             let requests = self
                 .lock_requests_by_rid
                 .read()

@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
     thread,
 };
 
@@ -13,6 +13,7 @@ use toydb::{
     common::{PageID, RID},
     concurrency::{IsolationLevel, TransactionManager},
     disk::DiskManager,
+    lock::LockManager,
     page::table_page::TablePage,
     table::TableHeap,
     value::{IntValue, Value, VarcharValue},
@@ -48,7 +49,9 @@ fn main() -> Result<()> {
 
     // components
     let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(disk_manager, 10)));
+    let lock_manager = Arc::new(RwLock::new(LockManager::default()));
     let transaction_manager = Arc::new(Mutex::new(TransactionManager::new(
+        lock_manager.clone(),
         // IsolationLevel::ReadCommitted,
         IsolationLevel::RepeatableRead,
     )));
@@ -58,6 +61,7 @@ fn main() -> Result<()> {
     for i in 0..20 {
         let buffer_pool_manager = buffer_pool_manager.clone();
         let transaction_manager = transaction_manager.clone();
+        let lock_manager = lock_manager.clone();
         let handle = thread::spawn(move || -> Result<()> {
             let values = vec![
                 Value::Int(IntValue(i as i32)),
@@ -72,6 +76,7 @@ fn main() -> Result<()> {
                 PageID(1),
                 buffer_pool_manager,
                 transaction_manager.clone(),
+                lock_manager,
                 txn_id,
             );
             table.insert(&values)?;
@@ -80,7 +85,7 @@ fn main() -> Result<()> {
             transaction_manager
                 .lock()
                 .map_err(|_| anyhow::anyhow!("lock error"))?
-                .commit(txn_id);
+                .commit(txn_id)?;
             Ok(())
         });
         handles.push(handle);
@@ -106,6 +111,7 @@ fn main() -> Result<()> {
             PageID(1),
             buffer_pool_manager.clone(),
             transaction_manager.clone(),
+            lock_manager.clone(),
             txn_id,
         );
         table.insert(&values)?;
@@ -113,7 +119,7 @@ fn main() -> Result<()> {
         transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
-            .abort(txn_id);
+            .abort(txn_id)?;
     }
 
     // read
@@ -136,13 +142,14 @@ fn main() -> Result<()> {
             PageID(1),
             buffer_pool_manager.clone(),
             transaction_manager.clone(),
+            lock_manager.clone(),
             other_txn_id,
         );
         table.insert(&values)?;
         transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
-            .commit(other_txn_id);
+            .commit(other_txn_id)?;
     }
 
     let mut table_view = Table::new();
@@ -158,6 +165,7 @@ fn main() -> Result<()> {
         PageID(1),
         buffer_pool_manager.clone(),
         transaction_manager.clone(),
+        lock_manager.clone(),
         txn_id,
     );
     for tuple in table.iter() {

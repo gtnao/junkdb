@@ -1,6 +1,11 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
-use crate::common::TransactionID;
+use anyhow::Result;
+
+use crate::{common::TransactionID, lock::LockManager};
 
 pub struct Transaction {
     snapshot: Vec<TransactionID>,
@@ -20,6 +25,7 @@ pub enum IsolationLevel {
 }
 
 pub struct TransactionManager {
+    lock_manager: Arc<RwLock<LockManager>>,
     isolation_level: IsolationLevel,
     next_txn_id: TransactionID,
     statuses: HashMap<TransactionID, TransactionStatus>,
@@ -27,8 +33,12 @@ pub struct TransactionManager {
 }
 
 impl TransactionManager {
-    pub fn new(isolation_level: IsolationLevel) -> TransactionManager {
+    pub fn new(
+        lock_manager: Arc<RwLock<LockManager>>,
+        isolation_level: IsolationLevel,
+    ) -> TransactionManager {
         TransactionManager {
+            lock_manager,
             isolation_level,
             next_txn_id: TransactionID(1),
             statuses: HashMap::new(),
@@ -49,14 +59,24 @@ impl TransactionManager {
         txn_id
     }
 
-    pub fn commit(&mut self, txn_id: TransactionID) {
+    pub fn commit(&mut self, txn_id: TransactionID) -> Result<()> {
+        self.lock_manager
+            .write()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .unlock(txn_id)?;
         self.statuses.insert(txn_id, TransactionStatus::Committed);
         self.active_transactions.remove(&txn_id);
+        Ok(())
     }
 
-    pub fn abort(&mut self, txn_id: TransactionID) {
+    pub fn abort(&mut self, txn_id: TransactionID) -> Result<()> {
+        self.lock_manager
+            .write()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .unlock(txn_id)?;
         self.statuses.insert(txn_id, TransactionStatus::Aborted);
         self.active_transactions.remove(&txn_id);
+        Ok(())
     }
 
     pub fn is_visible(
@@ -166,7 +186,9 @@ mod tests {
 
     #[test]
     fn test_transaction_manager_begin() {
-        let mut transaction_manager = TransactionManager::new(IsolationLevel::ReadCommitted);
+        let lock_manager = Arc::new(RwLock::new(LockManager::default()));
+        let mut transaction_manager =
+            TransactionManager::new(lock_manager, IsolationLevel::ReadCommitted);
         let txn_id = transaction_manager.begin();
         assert_eq!(txn_id, TransactionID(1));
         assert_eq!(
@@ -183,10 +205,12 @@ mod tests {
     }
 
     #[test]
-    fn test_transaction_manager_commit() {
-        let mut transaction_manager = TransactionManager::new(IsolationLevel::ReadCommitted);
+    fn test_transaction_manager_commit() -> Result<()> {
+        let lock_manager = Arc::new(RwLock::new(LockManager::default()));
+        let mut transaction_manager =
+            TransactionManager::new(lock_manager, IsolationLevel::ReadCommitted);
         let txn_id = transaction_manager.begin();
-        transaction_manager.commit(txn_id);
+        transaction_manager.commit(txn_id)?;
         assert_eq!(
             transaction_manager.statuses.get(&txn_id),
             Some(&TransactionStatus::Committed)
@@ -198,13 +222,16 @@ mod tests {
                 .is_none(),
             true
         );
+        Ok(())
     }
 
     #[test]
-    fn test_transaction_manager_abort() {
-        let mut transaction_manager = TransactionManager::new(IsolationLevel::ReadCommitted);
+    fn test_transaction_manager_abort() -> Result<()> {
+        let lock_manager = Arc::new(RwLock::new(LockManager::default()));
+        let mut transaction_manager =
+            TransactionManager::new(lock_manager, IsolationLevel::ReadCommitted);
         let txn_id = transaction_manager.begin();
-        transaction_manager.abort(txn_id);
+        transaction_manager.abort(txn_id)?;
         assert_eq!(
             transaction_manager.statuses.get(&txn_id),
             Some(&TransactionStatus::Aborted)
@@ -216,11 +243,14 @@ mod tests {
                 .is_none(),
             true
         );
+        Ok(())
     }
 
     #[test]
-    fn test_transaction_manager_visible_with_read_committed() {
-        let mut transaction_manager = TransactionManager::new(IsolationLevel::ReadCommitted);
+    fn test_transaction_manager_visible_with_read_committed() -> Result<()> {
+        let lock_manager = Arc::new(RwLock::new(LockManager::default()));
+        let mut transaction_manager =
+            TransactionManager::new(lock_manager, IsolationLevel::ReadCommitted);
 
         let txn_id_1 = transaction_manager.begin();
         // self insert
@@ -241,7 +271,7 @@ mod tests {
             false
         );
         // other insert after commit
-        transaction_manager.commit(txn_id_1);
+        transaction_manager.commit(txn_id_1)?;
         assert_eq!(
             transaction_manager.is_visible(txn_id_2, txn_id_1, INVALID_TRANSACTION_ID),
             true
@@ -254,22 +284,25 @@ mod tests {
             true
         );
         // other delete after commit
-        transaction_manager.commit(txn_id_3);
+        transaction_manager.commit(txn_id_3)?;
         assert_eq!(
             transaction_manager.is_visible(txn_id_2, txn_id_1, txn_id_3),
             false
         );
+        Ok(())
     }
 
     #[test]
-    fn test_transaction_manager_visible_with_repeatable_read() {
-        let mut transaction_manager = TransactionManager::new(IsolationLevel::RepeatableRead);
+    fn test_transaction_manager_visible_with_repeatable_read() -> Result<()> {
+        let lock_manager = Arc::new(RwLock::new(LockManager::default()));
+        let mut transaction_manager =
+            TransactionManager::new(lock_manager, IsolationLevel::RepeatableRead);
 
         let before_commit_txn_id = transaction_manager.begin();
-        transaction_manager.commit(before_commit_txn_id);
+        transaction_manager.commit(before_commit_txn_id)?;
         let running_txn_id = transaction_manager.begin();
         let before_abort_txn_id = transaction_manager.begin();
-        transaction_manager.abort(before_abort_txn_id);
+        transaction_manager.abort(before_abort_txn_id)?;
 
         let current_txn_id = transaction_manager.begin();
 
@@ -334,7 +367,7 @@ mod tests {
             true
         );
         // running insert after commit
-        transaction_manager.commit(running_txn_id);
+        transaction_manager.commit(running_txn_id)?;
         assert_eq!(
             transaction_manager.is_visible(current_txn_id, running_txn_id, INVALID_TRANSACTION_ID),
             false
@@ -356,10 +389,11 @@ mod tests {
             true
         );
         // after insert after commit
-        transaction_manager.commit(after_txn_id);
+        transaction_manager.commit(after_txn_id)?;
         assert_eq!(
             transaction_manager.is_visible(current_txn_id, after_txn_id, INVALID_TRANSACTION_ID),
             false
         );
+        Ok(())
     }
 }

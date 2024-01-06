@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::Result;
 
@@ -6,6 +6,7 @@ use crate::{
     buffer::BufferPoolManager,
     common::{PageID, TransactionID, INVALID_PAGE_ID, INVALID_TRANSACTION_ID, RID},
     concurrency::TransactionManager,
+    lock::LockManager,
     page::table_page::TABLE_PAGE_PAGE_TYPE,
     tuple::Tuple,
     value::Value,
@@ -15,6 +16,7 @@ pub struct TableHeap {
     first_page_id: PageID,
     buffer_pool_manager: Arc<Mutex<BufferPoolManager>>,
     transaction_manager: Arc<Mutex<TransactionManager>>,
+    lock_manager: Arc<RwLock<LockManager>>,
     txn_id: TransactionID,
 }
 
@@ -23,12 +25,14 @@ impl TableHeap {
         first_page_id: PageID,
         buffer_pool_manager: Arc<Mutex<BufferPoolManager>>,
         transaction_manager: Arc<Mutex<TransactionManager>>,
+        lock_manager: Arc<RwLock<LockManager>>,
         txn_id: TransactionID,
     ) -> Self {
         Self {
             first_page_id,
             buffer_pool_manager,
             transaction_manager,
+            lock_manager,
             txn_id,
         }
     }
@@ -94,6 +98,10 @@ impl TableHeap {
     pub fn delete(&mut self, rid: RID) -> Result<()> {
         let page_id = rid.0;
         let tuple_index = rid.1;
+        self.lock_manager
+            .read()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .lock(rid, self.txn_id)?;
         let page = self
             .buffer_pool_manager
             .lock()
