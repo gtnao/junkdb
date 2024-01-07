@@ -9,33 +9,33 @@ toydb is a Relational Database Management System written in Rust for my own stud
 - Rust-based
 - Basic RDBMS Operations
   - DML
-    - CRUD (SELECT, INSERT, DELETE, and UPDATE)
-    - Filtering (WHERE)
-    - Join
-      - NLJ (Nested Loop Join)
-    - Aggregation (GROUP BY and HAVING)
-    - Sorting (ORDER BY AND LIMIT)
+    - [x] CRUD (SELECT, INSERT, DELETE, and UPDATE)
+    - [x] Filtering (WHERE)
+    - [ ] Join
+      - [ ] Nested Loop Join
+    - [ ] Aggregation (GROUP BY and HAVING)
+    - [ ] Sorting (ORDER BY and LIMIT)
   - DDL
-    - CREATE TABLE
+    - [x] CREATE TABLE
 - Transactions:
-  - MVCC (Multi-Version Concurrency Control)
-    - Snapshot Isolation
-  - IsolationLevel
-    - READ COMMITTED
-    - REPEATABLE READ
-  - Vacuum: clean up old data versions.
-  - Lock
-    - Row-level Exclusive Locking: prevent dirty write.
-    - Deadlock Detection
-  - Recovery (ARIES)
-- Indexing
-  - B+ Tree
-- BufferPool
-  - LRU
-- Optimizer
-  - Rule-Based
-- Basic Data Type
-  - INT, VARCHAR, BOOLEAN
+  - [x] MVCC (Multi-Version Concurrency Control)
+    - [x] Snapshot Isolation
+  - [x] Isolation Level
+    - [x] READ COMMITTED
+    - [x] REPEATABLE READ
+  - [ ] Vacuum: clean up old data versions.
+  - [ ] Lock
+    - [x] Row-level Exclusive Locking: prevent dirty write.
+    - [ ] Deadlock Detection
+  - [ ] Recovery (ARIES-based)
+- [ ] Indexing
+  - [ ] B+ Tree
+- [x] Buffer Pool
+  - [x] LRU
+- [ ] Optimizer
+  - [ ] Rule-based
+- [ ] Basic Data Type
+  - [x] INT, VARCHAR, BOOLEAN
   - NULL
-- Basic SQL Parser
-- CLI
+- [ ] Basic SQL Parser
+- [ ] CLI
