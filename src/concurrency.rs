@@ -1,5 +1,7 @@
 use std::{
     collections::HashMap,
+    fs::{File, OpenOptions},
+    io::{Read, Write},
     sync::{Arc, RwLock},
 };
 
@@ -11,14 +13,14 @@ pub struct Transaction {
     snapshot: Vec<TransactionID>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TransactionStatus {
     Running,
     Aborted,
     Committed,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum IsolationLevel {
     ReadCommitted,
     RepeatableRead,
@@ -26,6 +28,7 @@ pub enum IsolationLevel {
 
 pub struct TransactionManager {
     lock_manager: Arc<RwLock<LockManager>>,
+    log_manager: TransactionLogManager,
     isolation_level: IsolationLevel,
     next_txn_id: TransactionID,
     statuses: HashMap<TransactionID, TransactionStatus>,
@@ -35,15 +38,28 @@ pub struct TransactionManager {
 impl TransactionManager {
     pub fn new(
         lock_manager: Arc<RwLock<LockManager>>,
+        log_file_path: &str,
         isolation_level: IsolationLevel,
-    ) -> TransactionManager {
-        TransactionManager {
+    ) -> Result<Self> {
+        let mut log_manager = TransactionLogManager::new(log_file_path)?;
+        let logs = log_manager.read()?;
+        let statuses = logs
+            .iter()
+            .map(|log| (log.txn_id, log.status))
+            .collect::<HashMap<_, _>>();
+        let next_txn_id = if statuses.is_empty() {
+            TransactionID(1)
+        } else {
+            TransactionID(statuses.keys().max_by_key(|k| k.0).unwrap().0 + 1)
+        };
+        Ok(TransactionManager {
             lock_manager,
+            log_manager,
             isolation_level,
-            next_txn_id: TransactionID(1),
-            statuses: HashMap::new(),
+            next_txn_id,
+            statuses,
             active_transactions: HashMap::new(),
-        }
+        })
     }
 
     pub fn begin(&mut self) -> TransactionID {
@@ -64,6 +80,8 @@ impl TransactionManager {
             .write()
             .map_err(|_| anyhow::anyhow!("lock error"))?
             .unlock(txn_id)?;
+        self.log_manager
+            .write(TransactionLog::new(txn_id, TransactionStatus::Committed))?;
         self.statuses.insert(txn_id, TransactionStatus::Committed);
         self.active_transactions.remove(&txn_id);
         Ok(())
@@ -74,6 +92,8 @@ impl TransactionManager {
             .write()
             .map_err(|_| anyhow::anyhow!("lock error"))?
             .unlock(txn_id)?;
+        self.log_manager
+            .write(TransactionLog::new(txn_id, TransactionStatus::Aborted))?;
         self.statuses.insert(txn_id, TransactionStatus::Aborted);
         self.active_transactions.remove(&txn_id);
         Ok(())
@@ -178,17 +198,89 @@ impl TransactionManager {
     }
 }
 
+struct TransactionLog {
+    txn_id: TransactionID,
+    status: TransactionStatus,
+}
+impl TransactionLog {
+    pub fn new(txn_id: TransactionID, status: TransactionStatus) -> Self {
+        Self { txn_id, status }
+    }
+    pub fn serialize(&self) -> Box<[u8]> {
+        let mut buffer = self.txn_id.0.to_le_bytes().to_vec();
+        match self.status {
+            TransactionStatus::Committed => buffer.push(0),
+            TransactionStatus::Aborted => buffer.push(1),
+            _ => unreachable!(),
+        }
+        buffer.into()
+    }
+}
+impl From<&[u8]> for TransactionLog {
+    fn from(bytes: &[u8]) -> Self {
+        assert!(bytes.len() == 9);
+        let mut txn_id_buffer = [0u8; 8];
+        txn_id_buffer.copy_from_slice(&bytes[0..8]);
+        let txn_id = TransactionID(u64::from_le_bytes(txn_id_buffer));
+        let status = match bytes[8] {
+            0 => TransactionStatus::Committed,
+            1 => TransactionStatus::Aborted,
+            _ => unreachable!(),
+        };
+        TransactionLog { txn_id, status }
+    }
+}
+
+struct TransactionLogManager {
+    log_file: File,
+}
+impl TransactionLogManager {
+    pub fn new(log_file_path: &str) -> Result<Self> {
+        let log_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(log_file_path)?;
+        Ok(Self { log_file })
+    }
+    pub fn read(&mut self) -> Result<Vec<TransactionLog>> {
+        let mut buffer = vec![];
+        self.log_file.read_to_end(&mut buffer)?;
+        let mut logs = vec![];
+        let mut offset = 0;
+        while offset < buffer.len() {
+            let log = TransactionLog::from(&buffer[offset..(offset + 9)]);
+            logs.push(log);
+            offset += 9;
+        }
+        Ok(logs)
+    }
+    pub fn write(&mut self, txn_log: TransactionLog) -> Result<()> {
+        let buffer = txn_log.serialize();
+        self.log_file.write_all(&buffer)?;
+        self.log_file.sync_all()?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::common::INVALID_TRANSACTION_ID;
 
     use super::*;
 
+    use tempfile::tempdir;
+
     #[test]
-    fn test_transaction_manager_begin() {
+    fn test_transaction_manager_begin() -> Result<()> {
+        let dir = tempdir()?;
+        let log_file_path = dir.path().join("transaction.log");
         let lock_manager = Arc::new(RwLock::new(LockManager::default()));
-        let mut transaction_manager =
-            TransactionManager::new(lock_manager, IsolationLevel::ReadCommitted);
+        let mut transaction_manager = TransactionManager::new(
+            lock_manager,
+            log_file_path.to_str().unwrap(),
+            IsolationLevel::ReadCommitted,
+        )?;
         let txn_id = transaction_manager.begin();
         assert_eq!(txn_id, TransactionID(1));
         assert_eq!(
@@ -202,13 +294,19 @@ mod tests {
                 .is_some(),
             true,
         );
+        Ok(())
     }
 
     #[test]
     fn test_transaction_manager_commit() -> Result<()> {
+        let dir = tempdir()?;
+        let log_file_path = dir.path().join("transaction.log");
         let lock_manager = Arc::new(RwLock::new(LockManager::default()));
-        let mut transaction_manager =
-            TransactionManager::new(lock_manager, IsolationLevel::ReadCommitted);
+        let mut transaction_manager = TransactionManager::new(
+            lock_manager,
+            log_file_path.to_str().unwrap(),
+            IsolationLevel::ReadCommitted,
+        )?;
         let txn_id = transaction_manager.begin();
         transaction_manager.commit(txn_id)?;
         assert_eq!(
@@ -227,9 +325,14 @@ mod tests {
 
     #[test]
     fn test_transaction_manager_abort() -> Result<()> {
+        let dir = tempdir()?;
+        let log_file_path = dir.path().join("transaction.log");
         let lock_manager = Arc::new(RwLock::new(LockManager::default()));
-        let mut transaction_manager =
-            TransactionManager::new(lock_manager, IsolationLevel::ReadCommitted);
+        let mut transaction_manager = TransactionManager::new(
+            lock_manager,
+            log_file_path.to_str().unwrap(),
+            IsolationLevel::ReadCommitted,
+        )?;
         let txn_id = transaction_manager.begin();
         transaction_manager.abort(txn_id)?;
         assert_eq!(
@@ -248,9 +351,14 @@ mod tests {
 
     #[test]
     fn test_transaction_manager_visible_with_read_committed() -> Result<()> {
+        let dir = tempdir()?;
+        let log_file_path = dir.path().join("transaction.log");
         let lock_manager = Arc::new(RwLock::new(LockManager::default()));
-        let mut transaction_manager =
-            TransactionManager::new(lock_manager, IsolationLevel::ReadCommitted);
+        let mut transaction_manager = TransactionManager::new(
+            lock_manager,
+            log_file_path.to_str().unwrap(),
+            IsolationLevel::ReadCommitted,
+        )?;
 
         let txn_id_1 = transaction_manager.begin();
         // self insert
@@ -294,9 +402,14 @@ mod tests {
 
     #[test]
     fn test_transaction_manager_visible_with_repeatable_read() -> Result<()> {
+        let dir = tempdir()?;
+        let log_file_path = dir.path().join("transaction.log");
         let lock_manager = Arc::new(RwLock::new(LockManager::default()));
-        let mut transaction_manager =
-            TransactionManager::new(lock_manager, IsolationLevel::RepeatableRead);
+        let mut transaction_manager = TransactionManager::new(
+            lock_manager,
+            log_file_path.to_str().unwrap(),
+            IsolationLevel::RepeatableRead,
+        )?;
 
         let before_commit_txn_id = transaction_manager.begin();
         transaction_manager.commit(before_commit_txn_id)?;

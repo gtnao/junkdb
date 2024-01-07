@@ -316,13 +316,15 @@ mod tests {
     fn test_catalog() -> Result<()> {
         let dir = tempdir()?;
         let data_file_path = dir.path().join("data");
+        let txn_log_file_path = dir.path().join("transaction.log");
         let disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
         let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(disk_manager, 10)));
         let lock_manager = Arc::new(RwLock::new(LockManager::default()));
         let transaction_manager = Arc::new(Mutex::new(TransactionManager::new(
             lock_manager.clone(),
+            txn_log_file_path.to_str().unwrap(),
             IsolationLevel::RepeatableRead,
-        )));
+        )?));
         let mut catalog = Catalog::new(
             buffer_pool_manager.clone(),
             transaction_manager.clone(),

@@ -52,9 +52,10 @@ fn main() -> Result<()> {
     let lock_manager = Arc::new(RwLock::new(LockManager::default()));
     let transaction_manager = Arc::new(Mutex::new(TransactionManager::new(
         lock_manager.clone(),
+        "transaction.log",
         // IsolationLevel::ReadCommitted,
         IsolationLevel::RepeatableRead,
-    )));
+    )?));
 
     // sample inserts
     let mut handles = vec![];
