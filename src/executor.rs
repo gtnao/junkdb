@@ -8,11 +8,15 @@ use crate::{
     common::TransactionID,
     concurrency::TransactionManager,
     lock::LockManager,
-    plan::{DeletePlan, FilterPlan, InsertPlan, Plan, ProjectPlan, SeqScanPlan, UpdatePlan},
+    plan::{DeletePlan, InsertPlan, Plan, ProjectPlan, SeqScanPlan, UpdatePlan},
     table::{TableHeap, TableIterator},
     tuple::Tuple,
     value::Value,
 };
+
+use self::filter_executor::FilterExecutor;
+
+mod filter_executor;
 
 pub struct ExecutorContext {
     pub transaction_id: TransactionID,
@@ -31,7 +35,7 @@ impl ExecutorEngine {
         Self { plan, context }
     }
     pub fn execute(&mut self) -> Result<Vec<Vec<Value>>> {
-        let mut executor = self.create_executor();
+        let mut executor = self.create_executor(&self.plan);
         executor.init()?;
         let mut tuple = executor.next()?;
         let mut result = vec![];
@@ -41,8 +45,8 @@ impl ExecutorEngine {
         }
         Ok(result)
     }
-    fn create_executor(&self) -> Executor {
-        match &self.plan {
+    fn create_executor(&self, plan: &Plan) -> Executor {
+        match plan {
             Plan::SeqScan(plan) => Executor::SeqScan(SeqScanExecutor {
                 plan: plan.clone(),
                 executor_context: &self.context,
@@ -50,12 +54,12 @@ impl ExecutorEngine {
             }),
             Plan::Filter(plan) => Executor::Filter(FilterExecutor {
                 plan: plan.clone(),
-                child: Box::new(self.create_executor()),
+                child: Box::new(self.create_executor(&plan.child)),
                 executor_context: &self.context,
             }),
             Plan::Project(plan) => Executor::Project(ProjectExecutor {
                 plan: plan.clone(),
-                child: Box::new(self.create_executor()),
+                child: Box::new(self.create_executor(&plan.child)),
                 executor_context: &self.context,
             }),
             Plan::Insert(plan) => Executor::Insert(InsertExecutor {
@@ -64,12 +68,12 @@ impl ExecutorEngine {
             }),
             Plan::Delete(plan) => Executor::Delete(DeleteExecutor {
                 plan: plan.clone(),
-                child: Box::new(self.create_executor()),
+                child: Box::new(self.create_executor(&plan.child)),
                 executor_context: &self.context,
             }),
             Plan::Update(plan) => Executor::Update(UpdateExecutor {
                 plan: plan.clone(),
-                child: Box::new(self.create_executor()),
+                child: Box::new(self.create_executor(&plan.child)),
                 executor_context: &self.context,
             }),
         }
@@ -111,11 +115,6 @@ pub struct SeqScanExecutor<'a> {
     pub plan: SeqScanPlan,
     pub executor_context: &'a ExecutorContext,
     pub table_iterator: Option<TableIterator>,
-}
-pub struct FilterExecutor<'a> {
-    pub plan: FilterPlan,
-    pub child: Box<Executor<'a>>,
-    pub executor_context: &'a ExecutorContext,
 }
 pub struct ProjectExecutor<'a> {
     pub plan: ProjectPlan,
@@ -163,14 +162,6 @@ impl SeqScanExecutor<'_> {
         Ok(table_iterator.next())
     }
 }
-impl FilterExecutor<'_> {
-    pub fn init(&mut self) -> Result<()> {
-        unimplemented!()
-    }
-    pub fn next(&mut self) -> Result<Option<Tuple>> {
-        unimplemented!()
-    }
-}
 impl ProjectExecutor<'_> {
     pub fn init(&mut self) -> Result<()> {
         unimplemented!()
@@ -214,14 +205,12 @@ mod tests {
     use crate::{
         buffer::BufferPoolManager,
         catalog::{Catalog, Column, DataType, Schema},
-        common::TransactionID,
         concurrency::{IsolationLevel, TransactionManager},
         disk::DiskManager,
         executor::{ExecutorContext, ExecutorEngine},
         lock::LockManager,
-        plan::{Plan, SeqScanPlan},
+        plan::{BinaryExpression, Expression, FilterPlan, PathExpression, Plan, SeqScanPlan},
         table::TableHeap,
-        tuple::Tuple,
         value::{IntValue, Value, VarcharValue},
     };
 
@@ -293,6 +282,12 @@ mod tests {
             Value::Int(IntValue(10)),
         ];
         table_heap.insert(&values)?;
+        let values = vec![
+            Value::Int(IntValue(2)),
+            Value::Varchar(VarcharValue("name2".to_string())),
+            Value::Int(IntValue(20)),
+        ];
+        table_heap.insert(&values)?;
         transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -314,18 +309,30 @@ mod tests {
             .lock()
             .map_err(|_| anyhow!("lock error"))?
             .get_schema_by_table_name("test", txn_id)?;
-        let plan = Plan::SeqScan(SeqScanPlan {
-            table_name: "test".to_string(),
-            schema,
+        let plan = Plan::Filter(FilterPlan {
+            predicate: Expression::Binary(BinaryExpression {
+                operator: crate::plan::BinaryOperator::Equal,
+                left: Box::new(Expression::Path(PathExpression {
+                    column_name: "age".to_string(),
+                })),
+                right: Box::new(Expression::Literal(crate::plan::LiteralExpression {
+                    value: Value::Int(IntValue(20)),
+                })),
+            }),
+            schema: schema.clone(),
+            child: Box::new(Plan::SeqScan(SeqScanPlan {
+                table_name: "test".to_string(),
+                schema,
+            })),
         });
         let mut executor = ExecutorEngine::new(plan, executor_context);
         let tuples = executor.execute()?;
         assert_eq!(
             tuples,
             vec![vec![
-                Value::Int(IntValue(1)),
-                Value::Varchar(VarcharValue("name1".to_string())),
-                Value::Int(IntValue(10))
+                Value::Int(IntValue(2)),
+                Value::Varchar(VarcharValue("name2".to_string())),
+                Value::Int(IntValue(20))
             ]]
         );
 

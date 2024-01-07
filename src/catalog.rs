@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::{
     buffer::BufferPoolManager,
     common::{PageID, TransactionID},
-    concurrency::TransactionManager,
+    concurrency::{TransactionManager, TransactionStatus},
     lock::LockManager,
     page::table_page::TABLE_PAGE_PAGE_TYPE,
     table::TableHeap,
@@ -16,6 +16,12 @@ use crate::{
 pub struct Schema {
     pub columns: Vec<Column>,
 }
+impl Schema {
+    pub fn column_index(&self, name: &str) -> Option<usize> {
+        self.columns.iter().position(|c| c.name == name)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Column {
     pub name: String,
