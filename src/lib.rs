@@ -4,6 +4,7 @@ pub mod common;
 pub mod concurrency;
 pub mod disk;
 pub mod executor;
+pub mod lexer;
 pub mod lock;
 pub mod page;
 pub mod plan;
