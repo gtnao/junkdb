@@ -33,7 +33,7 @@ impl InsertExecutor<'_> {
             .values
             .iter()
             // dummy
-            .map(|e| e.eval(&Tuple::new(&vec![]), &Schema { columns: vec![] }))
+            .map(|e| e.eval(&Tuple::new(None, &vec![]), &Schema { columns: vec![] }))
             .collect::<Vec<_>>();
         table_heap.insert(&values)?;
         Ok(None)

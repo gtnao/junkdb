@@ -1,6 +1,11 @@
-use crate::{catalog::Schema, common::TransactionID, value::Value};
+use crate::{
+    catalog::Schema,
+    common::{TransactionID, RID},
+    value::Value,
+};
 
 pub struct Tuple {
+    pub rid: Option<RID>,
     pub data: Box<[u8]>,
 }
 
@@ -11,13 +16,16 @@ const XMAX_SIZE: usize = 8;
 const HEADER_SIZE: usize = XMAX_OFFSET + XMAX_SIZE;
 
 impl Tuple {
-    pub fn new(data: &[u8]) -> Tuple {
-        Tuple { data: data.into() }
+    pub fn new(rid: Option<RID>, data: &[u8]) -> Tuple {
+        Tuple {
+            rid,
+            data: data.into(),
+        }
     }
 
     pub fn temp_tuple(values: &[Value]) -> Tuple {
         let bytes = Self::serialize(TransactionID(0), TransactionID(0), values);
-        Tuple::new(&bytes)
+        Tuple::new(None, &bytes)
     }
 
     pub fn xmin(&self) -> TransactionID {
@@ -93,7 +101,7 @@ mod tests {
             Value::Int(IntValue(20)),
         ];
         let tuple_data = Tuple::serialize(TransactionID(1), TransactionID(2), &values);
-        let tuple = Tuple::new(&tuple_data);
+        let tuple = Tuple::new(None, &tuple_data);
         assert_eq!(tuple.xmin(), TransactionID(1));
         assert_eq!(tuple.xmax(), TransactionID(2));
         assert_eq!(

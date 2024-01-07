@@ -72,7 +72,7 @@ impl TablePage {
     pub fn delete(&mut self, index: u32, txn_id: TransactionID) {
         let offset = self.line_pointer_offset(index as usize) as usize;
         let size = self.line_pointer_size(index as usize) as usize;
-        let mut tuple = Tuple::new(&self.data[offset..(offset + size)]);
+        let mut tuple = Tuple::new(None, &self.data[offset..(offset + size)]);
         tuple.set_xmax(txn_id);
         self.data[offset..(offset + size)].copy_from_slice(&tuple.data);
     }

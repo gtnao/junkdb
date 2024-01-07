@@ -116,6 +116,7 @@ impl TableHeap {
 
 pub struct TableIterator {
     heap: TableHeap,
+    current_page_id: PageID,
     next_page_id: Option<PageID>,
     tuples: Vec<Box<[u8]>>,
     tuple_index: usize,
@@ -126,6 +127,7 @@ impl TableHeap {
         let page_id = self.first_page_id;
         TableIterator {
             heap: self,
+            current_page_id: page_id,
             next_page_id: Some(page_id),
             tuples: Vec::new(),
             tuple_index: 0,
@@ -165,6 +167,7 @@ impl TableIterator {
                 .ok()?
                 .fetch_page(next_page_id)
                 .ok()?;
+            self.current_page_id = next_page_id;
             self.next_page_id = page.read().ok()?.with_table_page(|table_page| {
                 if table_page.next_page_id() == INVALID_PAGE_ID {
                     None
@@ -187,7 +190,10 @@ impl TableIterator {
         if self.tuple_index >= self.tuples.len() {
             return None;
         }
-        let tuple = Tuple::new(&self.tuples[self.tuple_index]);
+        let tuple = Tuple::new(
+            Some(RID(self.current_page_id, self.tuple_index as u32)),
+            &self.tuples[self.tuple_index],
+        );
         self.tuple_index += 1;
         Some(tuple)
     }
