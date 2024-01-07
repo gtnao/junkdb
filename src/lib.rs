@@ -7,6 +7,7 @@ pub mod executor;
 pub mod lexer;
 pub mod lock;
 pub mod page;
+pub mod parser;
 pub mod plan;
 pub mod table;
 pub mod tuple;

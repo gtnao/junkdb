@@ -27,7 +27,7 @@ pub struct Column {
     pub name: String,
     pub data_type: DataType,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum DataType {
     Int,
     Varchar,

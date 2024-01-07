@@ -13,6 +13,7 @@ pub enum Token {
     Asterisk,
     Semicolon,
     Comma,
+    Dot,
     LeftParen,
     RightParen,
     Equal,
@@ -38,6 +39,7 @@ pub enum Keyword {
     Begin,
     Commit,
     Rollback,
+    As,
 }
 impl TryFrom<&str> for Keyword {
     type Error = anyhow::Error;
@@ -60,6 +62,7 @@ impl TryFrom<&str> for Keyword {
             "BEGIN" => Ok(Keyword::Begin),
             "COMMIT" => Ok(Keyword::Commit),
             "ROLLBACK" => Ok(Keyword::Rollback),
+            "AS" => Ok(Keyword::As),
             _ => Err(anyhow!("invalid keyword: {}", s)),
         }
     }
@@ -95,9 +98,10 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                     }
                 }
             }
-            Some(c) if vec![',', '(', ')', '*', ';', '='].contains(c) => {
+            Some(c) if vec![',', '.', '(', ')', '*', ';', '='].contains(c) => {
                 tokens.push(match *c {
                     ',' => Token::Comma,
+                    '.' => Token::Dot,
                     '(' => Token::LeftParen,
                     ')' => Token::RightParen,
                     '*' => Token::Asterisk,
@@ -198,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_all_keywords() -> Result<()> {
-        let query = "CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET SELECT INTEGER VARCHAR BOOLEAN BEGIN COMMIT ROLLBACK";
+        let query = "CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET SELECT INTEGER VARCHAR BOOLEAN BEGIN COMMIT ROLLBACK AS";
         let mut iter = query.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
@@ -221,6 +225,7 @@ mod tests {
                 Token::Keyword(Keyword::Begin),
                 Token::Keyword(Keyword::Commit),
                 Token::Keyword(Keyword::Rollback),
+                Token::Keyword(Keyword::As),
                 Token::EOF,
             ]
         );
@@ -249,13 +254,14 @@ mod tests {
 
     #[test]
     fn test_all_symbols() -> Result<()> {
-        let query = ", ( ) * ; =";
+        let query = ", . ( ) * ; =";
         let mut iter = query.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
             tokens,
             vec![
                 Token::Comma,
+                Token::Dot,
                 Token::LeftParen,
                 Token::RightParen,
                 Token::Asterisk,
