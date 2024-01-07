@@ -8,15 +8,16 @@ use crate::{
     common::TransactionID,
     concurrency::TransactionManager,
     lock::LockManager,
-    plan::{DeletePlan, InsertPlan, Plan, ProjectPlan, SeqScanPlan, UpdatePlan},
+    plan::{DeletePlan, InsertPlan, Plan, SeqScanPlan, UpdatePlan},
     table::{TableHeap, TableIterator},
     tuple::Tuple,
     value::Value,
 };
 
-use self::filter_executor::FilterExecutor;
+use self::{filter_executor::FilterExecutor, project_executor::ProjectExecutor};
 
 mod filter_executor;
+mod project_executor;
 
 pub struct ExecutorContext {
     pub transaction_id: TransactionID,
@@ -116,11 +117,6 @@ pub struct SeqScanExecutor<'a> {
     pub executor_context: &'a ExecutorContext,
     pub table_iterator: Option<TableIterator>,
 }
-pub struct ProjectExecutor<'a> {
-    pub plan: ProjectPlan,
-    pub child: Box<Executor<'a>>,
-    pub executor_context: &'a ExecutorContext,
-}
 pub struct InsertExecutor<'a> {
     pub plan: InsertPlan,
     pub executor_context: &'a ExecutorContext,
@@ -162,14 +158,6 @@ impl SeqScanExecutor<'_> {
         Ok(table_iterator.next())
     }
 }
-impl ProjectExecutor<'_> {
-    pub fn init(&mut self) -> Result<()> {
-        unimplemented!()
-    }
-    pub fn next(&mut self) -> Result<Option<Tuple>> {
-        unimplemented!()
-    }
-}
 impl InsertExecutor<'_> {
     pub fn init(&mut self) -> Result<()> {
         unimplemented!()
@@ -209,7 +197,10 @@ mod tests {
         disk::DiskManager,
         executor::{ExecutorContext, ExecutorEngine},
         lock::LockManager,
-        plan::{BinaryExpression, Expression, FilterPlan, PathExpression, Plan, SeqScanPlan},
+        plan::{
+            BinaryExpression, Expression, FilterPlan, LiteralExpression, PathExpression, Plan,
+            ProjectPlan, SeqScanPlan,
+        },
         table::TableHeap,
         value::{IntValue, Value, VarcharValue},
     };
@@ -309,20 +300,48 @@ mod tests {
             .lock()
             .map_err(|_| anyhow!("lock error"))?
             .get_schema_by_table_name("test", txn_id)?;
-        let plan = Plan::Filter(FilterPlan {
-            predicate: Expression::Binary(BinaryExpression {
-                operator: crate::plan::BinaryOperator::Equal,
-                left: Box::new(Expression::Path(PathExpression {
-                    column_name: "age".to_string(),
+        let plan = Plan::Project(ProjectPlan {
+            select_elements: vec![
+                crate::plan::SelectElement {
+                    expression: Expression::Path(PathExpression {
+                        column_name: "name".to_string(),
+                    }),
+                    alias: None,
+                },
+                crate::plan::SelectElement {
+                    expression: Expression::Literal(LiteralExpression {
+                        value: Value::Int(IntValue(9999)),
+                    }),
+                    alias: Some("literal_value".to_string()),
+                },
+            ],
+            schema: Schema {
+                columns: vec![
+                    Column {
+                        name: "name".to_string(),
+                        data_type: DataType::Varchar,
+                    },
+                    Column {
+                        name: "literal_value".to_string(),
+                        data_type: DataType::Int,
+                    },
+                ],
+            },
+            child: Box::new(Plan::Filter(FilterPlan {
+                predicate: Expression::Binary(BinaryExpression {
+                    operator: crate::plan::BinaryOperator::Equal,
+                    left: Box::new(Expression::Path(PathExpression {
+                        column_name: "age".to_string(),
+                    })),
+                    right: Box::new(Expression::Literal(crate::plan::LiteralExpression {
+                        value: Value::Int(IntValue(20)),
+                    })),
+                }),
+                schema: schema.clone(),
+                child: Box::new(Plan::SeqScan(SeqScanPlan {
+                    table_name: "test".to_string(),
+                    schema,
                 })),
-                right: Box::new(Expression::Literal(crate::plan::LiteralExpression {
-                    value: Value::Int(IntValue(20)),
-                })),
-            }),
-            schema: schema.clone(),
-            child: Box::new(Plan::SeqScan(SeqScanPlan {
-                table_name: "test".to_string(),
-                schema,
             })),
         });
         let mut executor = ExecutorEngine::new(plan, executor_context);
@@ -330,9 +349,8 @@ mod tests {
         assert_eq!(
             tuples,
             vec![vec![
-                Value::Int(IntValue(2)),
                 Value::Varchar(VarcharValue("name2".to_string())),
-                Value::Int(IntValue(20))
+                Value::Int(IntValue(9999)),
             ]]
         );
 

@@ -15,6 +15,11 @@ impl Tuple {
         Tuple { data: data.into() }
     }
 
+    pub fn temp_tuple(values: &[Value]) -> Tuple {
+        let bytes = Self::serialize(TransactionID(0), TransactionID(0), values);
+        Tuple::new(&bytes)
+    }
+
     pub fn xmin(&self) -> TransactionID {
         let mut bytes = [0; XMIN_SIZE];
         bytes.copy_from_slice(&self.data[XMIN_OFFSET..XMIN_OFFSET + XMIN_SIZE]);

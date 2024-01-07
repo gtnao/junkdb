@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::{
     buffer::BufferPoolManager,
     common::{PageID, TransactionID},
-    concurrency::{TransactionManager, TransactionStatus},
+    concurrency::TransactionManager,
     lock::LockManager,
     page::table_page::TABLE_PAGE_PAGE_TYPE,
     table::TableHeap,
