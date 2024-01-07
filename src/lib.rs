@@ -1,5 +1,6 @@
 pub mod buffer;
 pub mod catalog;
+pub mod client;
 pub mod common;
 pub mod concurrency;
 pub mod disk;
@@ -9,6 +10,7 @@ pub mod lock;
 pub mod page;
 pub mod parser;
 pub mod plan;
+pub mod server;
 pub mod table;
 pub mod tuple;
 pub mod value;

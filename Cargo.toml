@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.79"
+dialoguer = { version = "0.11.0", features = ["history"] }
 prettytable-rs = "0.10.0"
 
 [dev-dependencies]

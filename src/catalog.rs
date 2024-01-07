@@ -68,8 +68,18 @@ impl Catalog {
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
             .begin();
-        self.create_table("system_tables", &Self::system_tables_schema(), txn_id)?;
-        self.create_table("system_columns", &Self::system_columns_schema(), txn_id)?;
+        self.create_system_table(
+            "system_tables",
+            &Self::system_tables_schema(),
+            txn_id,
+            SYSTEM_TABLES_FIRST_PAGE_ID,
+        )?;
+        self.create_system_table(
+            "system_columns",
+            &Self::system_columns_schema(),
+            txn_id,
+            SYSTEM_COLUMNS_FIRST_PAGE_ID,
+        )?;
         self.transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -198,6 +208,41 @@ impl Catalog {
             )?;
         Ok(())
     }
+    // TODO: refactor
+    pub fn create_system_table(
+        &mut self,
+        name: &str,
+        schema: &Schema,
+        txn_id: TransactionID,
+        first_page_id: PageID,
+    ) -> Result<()> {
+        let mut system_tables_table =
+            self.system_table_heap(PageID(SYSTEM_TABLES_FIRST_PAGE_ID.0), txn_id);
+        let table_id = self.next_table_id;
+        let values = vec![
+            Value::Int(IntValue(table_id as i32)),
+            Value::Varchar(VarcharValue(name.to_string())),
+            Value::Int(IntValue(first_page_id.0 as i32)),
+        ];
+        system_tables_table.insert(&values)?;
+        self.next_table_id += 1;
+        let mut system_columns_table =
+            self.system_table_heap(PageID(SYSTEM_COLUMNS_FIRST_PAGE_ID.0), txn_id);
+        for (i, column) in schema.columns.iter().enumerate() {
+            let values = vec![
+                Value::Int(IntValue(table_id as i32)),
+                Value::Varchar(VarcharValue(column.name.to_string())),
+                Value::Int(IntValue(i as i32)),
+                Value::Int(IntValue(match column.data_type {
+                    DataType::Int => 0,
+                    DataType::Varchar => 1,
+                    DataType::Boolean => 2,
+                })),
+            ];
+            system_columns_table.insert(&values)?;
+        }
+        Ok(())
+    }
     fn system_table_heap(&self, first_page_id: PageID, txn_id: TransactionID) -> TableHeap {
         TableHeap::new(
             first_page_id,
@@ -247,7 +292,7 @@ impl Catalog {
         Err(anyhow::anyhow!("table not found"))
     }
 
-    fn system_tables_schema() -> Schema {
+    pub fn system_tables_schema() -> Schema {
         Schema {
             columns: vec![
                 Column {
@@ -293,7 +338,6 @@ const SYSTEM_TABLE_COUNT: usize = 2;
 const SYSTEM_TABLES_FIRST_PAGE_ID: PageID = PageID(1);
 const SYSTEM_COLUMNS_FIRST_PAGE_ID: PageID = PageID(2);
 // const SYSTEM_INDEXES_FIRST_PAGE_ID: PageID = PageID(3);
-const SYSTEM_TRANSACTIONS_FIRST_PAGE_ID: PageID = PageID(4);
 
 #[cfg(test)]
 mod tests {
