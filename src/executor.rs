@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, RwLock};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 use crate::{
     buffer::BufferPoolManager,
@@ -8,16 +8,19 @@ use crate::{
     common::TransactionID,
     concurrency::TransactionManager,
     lock::LockManager,
-    plan::{DeletePlan, InsertPlan, Plan, SeqScanPlan, UpdatePlan},
-    table::{TableHeap, TableIterator},
+    plan::{DeletePlan, InsertPlan, Plan, UpdatePlan},
     tuple::Tuple,
     value::Value,
 };
 
-use self::{filter_executor::FilterExecutor, project_executor::ProjectExecutor};
+use self::{
+    filter_executor::FilterExecutor, project_executor::ProjectExecutor,
+    seq_scan_executor::SeqScanExecutor,
+};
 
 mod filter_executor;
 mod project_executor;
+mod seq_scan_executor;
 
 pub struct ExecutorContext {
     pub transaction_id: TransactionID,
@@ -112,11 +115,6 @@ impl Executor<'_> {
     }
 }
 
-pub struct SeqScanExecutor<'a> {
-    pub plan: SeqScanPlan,
-    pub executor_context: &'a ExecutorContext,
-    pub table_iterator: Option<TableIterator>,
-}
 pub struct InsertExecutor<'a> {
     pub plan: InsertPlan,
     pub executor_context: &'a ExecutorContext,
@@ -132,32 +130,6 @@ pub struct UpdateExecutor<'a> {
     pub executor_context: &'a ExecutorContext,
 }
 
-impl SeqScanExecutor<'_> {
-    pub fn init(&mut self) -> Result<()> {
-        let txn_id = self.executor_context.transaction_id;
-        let first_page_id = self
-            .executor_context
-            .catalog
-            .lock()
-            .map_err(|_| anyhow!("lock error"))?
-            .get_first_page_id_by_table_name(&self.plan.table_name, txn_id)?;
-        let table_heap = TableHeap::new(
-            first_page_id,
-            self.executor_context.buffer_pool_manager.clone(),
-            self.executor_context.transaction_manager.clone(),
-            self.executor_context.lock_manager.clone(),
-            txn_id,
-        );
-        self.table_iterator = Some(table_heap.iter());
-        Ok(())
-    }
-    pub fn next(&mut self) -> Result<Option<Tuple>> {
-        let table_iterator = self.table_iterator.as_mut().ok_or_else(|| {
-            anyhow!("table_iterator is not initialized. call init() before calling next()")
-        })?;
-        Ok(table_iterator.next())
-    }
-}
 impl InsertExecutor<'_> {
     pub fn init(&mut self) -> Result<()> {
         unimplemented!()
