@@ -8,17 +8,18 @@ use crate::{
     common::TransactionID,
     concurrency::TransactionManager,
     lock::LockManager,
-    plan::{DeletePlan, InsertPlan, Plan, UpdatePlan},
+    plan::{DeletePlan, Plan, UpdatePlan},
     tuple::Tuple,
     value::Value,
 };
 
 use self::{
-    filter_executor::FilterExecutor, project_executor::ProjectExecutor,
-    seq_scan_executor::SeqScanExecutor,
+    filter_executor::FilterExecutor, insert_executor::InsertExecutor,
+    project_executor::ProjectExecutor, seq_scan_executor::SeqScanExecutor,
 };
 
 mod filter_executor;
+mod insert_executor;
 mod project_executor;
 mod seq_scan_executor;
 
@@ -115,10 +116,6 @@ impl Executor<'_> {
     }
 }
 
-pub struct InsertExecutor<'a> {
-    pub plan: InsertPlan,
-    pub executor_context: &'a ExecutorContext,
-}
 pub struct DeleteExecutor<'a> {
     pub plan: DeletePlan,
     pub child: Box<Executor<'a>>,
@@ -130,14 +127,6 @@ pub struct UpdateExecutor<'a> {
     pub executor_context: &'a ExecutorContext,
 }
 
-impl InsertExecutor<'_> {
-    pub fn init(&mut self) -> Result<()> {
-        unimplemented!()
-    }
-    pub fn next(&mut self) -> Result<Option<Tuple>> {
-        unimplemented!()
-    }
-}
 impl DeleteExecutor<'_> {
     pub fn init(&mut self) -> Result<()> {
         unimplemented!()
@@ -170,10 +159,9 @@ mod tests {
         executor::{ExecutorContext, ExecutorEngine},
         lock::LockManager,
         plan::{
-            BinaryExpression, Expression, FilterPlan, LiteralExpression, PathExpression, Plan,
-            ProjectPlan, SeqScanPlan,
+            BinaryExpression, Expression, FilterPlan, InsertPlan, LiteralExpression,
+            PathExpression, Plan, ProjectPlan, SeqScanPlan,
         },
-        table::TableHeap,
         value::{IntValue, Value, VarcharValue},
     };
 
@@ -228,29 +216,54 @@ mod tests {
                 },
                 txn_id,
             )?;
-        let first_page_id = catalog
-            .lock()
-            .map_err(|_| anyhow!("lock error"))?
-            .get_first_page_id_by_table_name("test", txn_id)?;
-        let mut table_heap = TableHeap::new(
-            first_page_id,
-            buffer_pool_manager.clone(),
-            transaction_manager.clone(),
-            lock_manager.clone(),
-            txn_id,
-        );
-        let values = vec![
-            Value::Int(IntValue(1)),
-            Value::Varchar(VarcharValue("name1".to_string())),
-            Value::Int(IntValue(10)),
-        ];
-        table_heap.insert(&values)?;
-        let values = vec![
-            Value::Int(IntValue(2)),
-            Value::Varchar(VarcharValue("name2".to_string())),
-            Value::Int(IntValue(20)),
-        ];
-        table_heap.insert(&values)?;
+        let executor_context = ExecutorContext {
+            transaction_id: txn_id,
+            buffer_pool_manager: buffer_pool_manager.clone(),
+            lock_manager: lock_manager.clone(),
+            transaction_manager: transaction_manager.clone(),
+            catalog: catalog.clone(),
+        };
+        let plan = Plan::Insert(InsertPlan {
+            table_name: "test".to_string(),
+            values: vec![
+                crate::plan::Expression::Literal(crate::plan::LiteralExpression {
+                    value: Value::Int(IntValue(1)),
+                }),
+                crate::plan::Expression::Literal(crate::plan::LiteralExpression {
+                    value: Value::Varchar(VarcharValue("name1".to_string())),
+                }),
+                crate::plan::Expression::Literal(crate::plan::LiteralExpression {
+                    value: Value::Int(IntValue(10)),
+                }),
+            ],
+            schema: Schema { columns: vec![] },
+        });
+        let mut executor = ExecutorEngine::new(plan, executor_context);
+        executor.execute()?;
+        let executor_context = ExecutorContext {
+            transaction_id: txn_id,
+            buffer_pool_manager: buffer_pool_manager.clone(),
+            lock_manager: lock_manager.clone(),
+            transaction_manager: transaction_manager.clone(),
+            catalog: catalog.clone(),
+        };
+        let plan = Plan::Insert(InsertPlan {
+            table_name: "test".to_string(),
+            values: vec![
+                crate::plan::Expression::Literal(crate::plan::LiteralExpression {
+                    value: Value::Int(IntValue(2)),
+                }),
+                crate::plan::Expression::Literal(crate::plan::LiteralExpression {
+                    value: Value::Varchar(VarcharValue("name2".to_string())),
+                }),
+                crate::plan::Expression::Literal(crate::plan::LiteralExpression {
+                    value: Value::Int(IntValue(20)),
+                }),
+            ],
+            schema: Schema { columns: vec![] },
+        });
+        let mut executor = ExecutorEngine::new(plan, executor_context);
+        executor.execute()?;
         transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
