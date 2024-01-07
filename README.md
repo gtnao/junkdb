@@ -36,6 +36,6 @@ toydb is a Relational Database Management System written in Rust for my own stud
   - [ ] Rule-based
 - [ ] Basic Data Type
   - [x] INT, VARCHAR, BOOLEAN
-  - NULL
+  - [ ] NULL
 - [ ] Basic SQL Parser
 - [ ] CLI
