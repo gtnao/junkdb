@@ -1,4 +1,8 @@
-use crate::{catalog::Schema, value::Value};
+use crate::{
+    catalog::Schema,
+    tuple::Tuple,
+    value::{BooleanValue, Value},
+};
 
 #[derive(Debug, Clone)]
 pub enum Plan {
@@ -72,6 +76,7 @@ pub struct Assignment {
 pub enum Expression {
     Path(PathExpression),
     Literal(LiteralExpression),
+    Binary(BinaryExpression),
 }
 #[derive(Debug, Clone)]
 pub struct PathExpression {
@@ -80,4 +85,46 @@ pub struct PathExpression {
 #[derive(Debug, Clone)]
 pub struct LiteralExpression {
     pub value: Value,
+}
+#[derive(Debug, Clone)]
+pub struct BinaryExpression {
+    pub operator: BinaryOperator,
+    pub left: Box<Expression>,
+    pub right: Box<Expression>,
+}
+#[derive(Debug, Clone)]
+pub enum BinaryOperator {
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
+}
+
+impl Expression {
+    pub fn eval(&self, tuple: &Tuple, schema: &Schema) -> Value {
+        match self {
+            Expression::Path(path_expression) => {
+                let index = schema.column_index(&path_expression.column_name).unwrap();
+                let values = tuple.values(schema);
+                values[index].clone()
+            }
+            Expression::Literal(literal_expression) => literal_expression.value.clone(),
+            Expression::Binary(binary_expression) => {
+                let left = binary_expression.left.eval(tuple, schema);
+                let right = binary_expression.right.eval(tuple, schema);
+                match binary_expression.operator {
+                    BinaryOperator::Equal => Value::Boolean(BooleanValue(left == right)),
+                    BinaryOperator::NotEqual => Value::Boolean(BooleanValue(left != right)),
+                    BinaryOperator::LessThan => Value::Boolean(BooleanValue(left < right)),
+                    BinaryOperator::LessThanOrEqual => Value::Boolean(BooleanValue(left <= right)),
+                    BinaryOperator::GreaterThan => Value::Boolean(BooleanValue(left > right)),
+                    BinaryOperator::GreaterThanOrEqual => {
+                        Value::Boolean(BooleanValue(left >= right))
+                    }
+                }
+            }
+        }
+    }
 }

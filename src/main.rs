@@ -176,6 +176,7 @@ fn main() -> Result<()> {
             .map(|v| match v {
                 Value::Int(v) => Cell::new(&v.0.to_string()),
                 Value::Varchar(v) => Cell::new(&v.0),
+                Value::Boolean(v) => Cell::new(&v.0.to_string()),
             })
             .collect::<Vec<Cell>>();
         table_view.add_row(Row::new(cells));

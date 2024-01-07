@@ -25,6 +25,7 @@ pub struct Column {
 pub enum DataType {
     Int,
     Varchar,
+    Boolean,
 }
 
 pub struct Catalog {
@@ -115,6 +116,7 @@ impl Catalog {
                 Value::Int(IntValue(match column.data_type {
                     DataType::Int => 0,
                     DataType::Varchar => 1,
+                    DataType::Boolean => 2,
                 })),
             ];
             system_columns_table.insert(&values)?;
