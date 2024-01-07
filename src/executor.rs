@@ -3,20 +3,14 @@ use std::sync::{Arc, Mutex, RwLock};
 use anyhow::Result;
 
 use crate::{
-    buffer::BufferPoolManager,
-    catalog::Catalog,
-    common::TransactionID,
-    concurrency::TransactionManager,
-    lock::LockManager,
-    plan::{Plan, UpdatePlan},
-    tuple::Tuple,
-    value::Value,
+    buffer::BufferPoolManager, catalog::Catalog, common::TransactionID,
+    concurrency::TransactionManager, lock::LockManager, plan::Plan, tuple::Tuple, value::Value,
 };
 
 use self::{
     delete_executor::DeleteExecutor, filter_executor::FilterExecutor,
     insert_executor::InsertExecutor, project_executor::ProjectExecutor,
-    seq_scan_executor::SeqScanExecutor,
+    seq_scan_executor::SeqScanExecutor, update_executor::UpdateExecutor,
 };
 
 mod delete_executor;
@@ -24,6 +18,7 @@ mod filter_executor;
 mod insert_executor;
 mod project_executor;
 mod seq_scan_executor;
+mod update_executor;
 
 pub struct ExecutorContext {
     pub transaction_id: TransactionID,
@@ -83,6 +78,7 @@ impl ExecutorEngine {
                 plan: plan.clone(),
                 child: Box::new(self.create_executor(&plan.child)),
                 executor_context: &self.context,
+                table_heap: None,
             }),
         }
     }
@@ -119,21 +115,6 @@ impl Executor<'_> {
     }
 }
 
-pub struct UpdateExecutor<'a> {
-    pub plan: UpdatePlan,
-    pub child: Box<Executor<'a>>,
-    pub executor_context: &'a ExecutorContext,
-}
-
-impl UpdateExecutor<'_> {
-    pub fn init(&mut self) -> Result<()> {
-        unimplemented!()
-    }
-    pub fn next(&mut self) -> Result<Option<Tuple>> {
-        unimplemented!()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex, RwLock};
@@ -149,8 +130,8 @@ mod tests {
         executor::{ExecutorContext, ExecutorEngine},
         lock::LockManager,
         plan::{
-            BinaryExpression, DeletePlan, Expression, FilterPlan, InsertPlan, LiteralExpression,
-            PathExpression, Plan, ProjectPlan, SeqScanPlan,
+            Assignment, BinaryExpression, DeletePlan, Expression, FilterPlan, InsertPlan,
+            LiteralExpression, PathExpression, Plan, ProjectPlan, SeqScanPlan, UpdatePlan,
         },
         value::{IntValue, Value, VarcharValue},
     };
@@ -299,8 +280,43 @@ mod tests {
                         left: Box::new(Expression::Path(PathExpression {
                             column_name: "id".to_string(),
                         })),
-                        right: Box::new(Expression::Literal(crate::plan::LiteralExpression {
+                        right: Box::new(Expression::Literal(LiteralExpression {
                             value: Value::Int(IntValue(1)),
+                        })),
+                    }),
+                    schema: schema.clone(),
+                    child: Box::new(Plan::SeqScan(SeqScanPlan {
+                        table_name: "test".to_string(),
+                        schema: schema.clone(),
+                    })),
+                })),
+            });
+            let mut executor = ExecutorEngine::new(plan, executor_context);
+            executor.execute()?;
+            let executor_context = ExecutorContext {
+                transaction_id: txn_id,
+                buffer_pool_manager: buffer_pool_manager.clone(),
+                lock_manager: lock_manager.clone(),
+                transaction_manager: transaction_manager.clone(),
+                catalog: catalog.clone(),
+            };
+            let plan = Plan::Update(UpdatePlan {
+                table_name: "test".to_string(),
+                assignments: vec![Assignment {
+                    column_index: 1,
+                    expression: Expression::Literal(LiteralExpression {
+                        value: Value::Varchar(VarcharValue("name2_updated".to_string())),
+                    }),
+                }],
+                schema: Schema { columns: vec![] },
+                child: Box::new(Plan::Filter(FilterPlan {
+                    predicate: Expression::Binary(BinaryExpression {
+                        operator: crate::plan::BinaryOperator::Equal,
+                        left: Box::new(Expression::Path(PathExpression {
+                            column_name: "id".to_string(),
+                        })),
+                        right: Box::new(Expression::Literal(crate::plan::LiteralExpression {
+                            value: Value::Int(IntValue(2)),
                         })),
                     }),
                     schema: schema.clone(),
@@ -383,7 +399,7 @@ mod tests {
         assert_eq!(
             tuples,
             vec![vec![
-                Value::Varchar(VarcharValue("name2".to_string())),
+                Value::Varchar(VarcharValue("name2_updated".to_string())),
                 Value::Int(IntValue(9999)),
             ]]
         );

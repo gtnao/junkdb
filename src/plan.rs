@@ -68,7 +68,7 @@ pub struct UpdatePlan {
 }
 #[derive(Debug, Clone)]
 pub struct Assignment {
-    pub path: PathExpression,
+    pub column_index: usize,
     pub expression: Expression,
 }
 
