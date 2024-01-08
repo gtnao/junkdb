@@ -172,18 +172,18 @@ impl Catalog {
             if let Value::Int(IntValue(table_id_)) = values[0] {
                 if table_id_ == table_id as i32 {
                     if let Value::Varchar(VarcharValue(name)) = &values[1] {
-                        if let Value::Int(IntValue(ordinal_position)) = values[2] {
-                            if let Value::Int(IntValue(data_type)) = values[3] {
-                                schema.columns.push(Column {
-                                    name: name.to_string(),
-                                    data_type: match data_type {
-                                        0 => DataType::Int,
-                                        1 => DataType::Varchar,
-                                        _ => unreachable!(),
-                                    },
-                                });
-                            }
+                        // if let Value::Int(IntValue(ordinal_position)) = values[2] {
+                        if let Value::Int(IntValue(data_type)) = values[3] {
+                            schema.columns.push(Column {
+                                name: name.to_string(),
+                                data_type: match data_type {
+                                    0 => DataType::Int,
+                                    1 => DataType::Varchar,
+                                    _ => unreachable!(),
+                                },
+                            });
                         }
+                        // }
                     }
                 }
             }
