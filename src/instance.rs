@@ -6,11 +6,17 @@ use std::{
 use anyhow::Result;
 
 use crate::{
+    binder::Binder,
     buffer::BufferPoolManager,
-    catalog::Catalog,
+    catalog::{Catalog, Column, Schema},
+    common::TransactionID,
     concurrency::{IsolationLevel, TransactionManager},
     disk::DiskManager,
+    executor::{ExecutorContext, ExecutorEngine},
     lock::LockManager,
+    parser::{CreateTableStatementAST, StatementAST},
+    plan::Planner,
+    value::Value,
 };
 
 pub struct Instance {
@@ -54,6 +60,75 @@ impl Instance {
             transaction_manager,
             lock_manager,
         })
+    }
+
+    // DDL
+    pub fn create_table(
+        &self,
+        statement: &CreateTableStatementAST,
+        txn_id: TransactionID,
+    ) -> Result<()> {
+        let schema = Schema {
+            columns: statement
+                .elements
+                .iter()
+                .map(|e| Column {
+                    name: e.column_name.clone(),
+                    data_type: e.data_type.clone(),
+                })
+                .collect(),
+        };
+        self.catalog
+            .lock()
+            .map_err(|e| anyhow::anyhow!("{}", e))?
+            .create_table(&statement.table_name, &schema, txn_id)
+    }
+
+    // DDL
+    pub fn execute(
+        &self,
+        statement: &StatementAST,
+        txn_id: TransactionID,
+    ) -> Result<(Vec<Vec<Value>>, Schema)> {
+        let mut binder = Binder::new(self.catalog.clone(), txn_id);
+        let bound_statement = binder.bind_statement(statement)?;
+        let planner = Planner::new(bound_statement);
+        let plan = planner.plan();
+        let schema = plan.schema().clone();
+        let executor_context = ExecutorContext {
+            transaction_id: txn_id,
+            buffer_pool_manager: self.buffer_pool_manager.clone(),
+            lock_manager: self.lock_manager.clone(),
+            transaction_manager: self.transaction_manager.clone(),
+            catalog: self.catalog.clone(),
+        };
+        let mut executor_engine = ExecutorEngine::new(plan, executor_context);
+        let rows = executor_engine.execute()?;
+        Ok((rows, schema))
+    }
+
+    // DCL
+    pub fn begin(&self, txn_id: Option<TransactionID>) -> Result<TransactionID> {
+        if let Some(txn_id) = txn_id {
+            return Ok(txn_id);
+        }
+        Ok(self
+            .transaction_manager
+            .lock()
+            .map_err(|e| anyhow::anyhow!("{}", e))?
+            .begin())
+    }
+    pub fn commit(&self, txn_id: TransactionID) -> Result<()> {
+        self.transaction_manager
+            .lock()
+            .map_err(|e| anyhow::anyhow!("{}", e))?
+            .commit(txn_id)
+    }
+    pub fn rollback(&self, txn_id: TransactionID) -> Result<()> {
+        self.transaction_manager
+            .lock()
+            .map_err(|e| anyhow::anyhow!("{}", e))?
+            .abort(txn_id)
     }
 
     pub fn shutdown(&self) -> Result<()> {
