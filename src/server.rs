@@ -28,7 +28,15 @@ pub fn server_start(init: bool) -> Result<()> {
     thread::spawn(move || {
         for _ in signals.forever() {
             println!("toydb server shutdown...");
-            instance_clone.read().unwrap().shutdown().unwrap();
+            if let Ok(instance) = instance_clone.read() {
+                if let Err(e) = instance.shutdown() {
+                    println!("shutdown error: {}", e);
+                    std::process::exit(1);
+                }
+            } else {
+                println!("shutdown error: lock error");
+                std::process::exit(1);
+            }
             std::process::exit(0);
         }
     });

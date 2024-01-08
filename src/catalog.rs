@@ -179,6 +179,7 @@ impl Catalog {
                                 data_type: match data_type {
                                     0 => DataType::Int,
                                     1 => DataType::Varchar,
+                                    2 => DataType::Boolean,
                                     _ => unreachable!(),
                                 },
                             });
