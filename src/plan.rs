@@ -102,7 +102,16 @@ impl Planner {
         if !select_statement.select_elements.is_empty() {
             plan = Plan::Project(ProjectPlan {
                 select_elements: select_statement.select_elements.clone(),
-                schema: plan.schema().clone(),
+                schema: Schema {
+                    columns: select_statement
+                        .select_elements
+                        .iter()
+                        .map(|select_element| Column {
+                            name: select_element.name.clone(),
+                            data_type: select_element.expression.data_type(),
+                        })
+                        .collect(),
+                },
                 child: Box::new(plan),
             });
         }

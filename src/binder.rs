@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 
 use crate::{
-    catalog::{Catalog, Schema},
+    catalog::{Catalog, DataType, Schema},
     common::{PageID, TransactionID},
     parser::{
         BaseTableReferenceAST, BinaryExpressionAST, BinaryOperator, DeleteStatementAST,
@@ -30,7 +30,7 @@ pub struct BoundSelectStatementAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundSelectElementAST {
     pub expression: BoundExpressionAST,
-    pub alias: Option<String>,
+    pub name: String,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BoundTableReferenceAST {
@@ -76,10 +76,12 @@ pub enum BoundExpressionAST {
 pub struct BoundPathExpressionAST {
     pub path: Vec<String>,
     pub column_index: usize,
+    pub data_type: DataType,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundLiteralExpressionAST {
     pub value: Value,
+    pub data_type: DataType,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundBinaryExpressionAST {
@@ -119,12 +121,28 @@ impl Binder {
     fn bind_select(&mut self, statement: &SelectStatementAST) -> Result<BoundStatementAST> {
         let table_reference = self.bind_table_reference(&statement.table_reference)?;
         let mut select_elements = Vec::new();
+        let mut unknown_count = 0;
         for element in &statement.select_elements {
             let expression = self.bind_expression(&element.expression)?;
-            select_elements.push(BoundSelectElementAST {
-                expression,
-                alias: element.alias.clone(),
-            });
+            let name = match &element.alias {
+                Some(alias) => alias.clone(),
+                None => {
+                    if let BoundExpressionAST::Path(path_expression) = &expression {
+                        path_expression
+                            .path
+                            .last()
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("path expression must have at least one element")
+                            })?
+                            .clone()
+                    } else {
+                        let c = format!("__c{}", unknown_count);
+                        unknown_count += 1;
+                        c
+                    }
+                }
+            };
+            select_elements.push(BoundSelectElementAST { expression, name });
         }
         let condition = match &statement.condition {
             Some(condition) => Some(self.bind_expression(condition)?),
@@ -215,7 +233,7 @@ impl Binder {
         let mut assignments = Vec::new();
         for assignment in &statement.assignments {
             let value = self.bind_expression(&assignment.value)?;
-            let column_index = self.resolve_path_expression(&PathExpressionAST {
+            let (column_index, _) = self.resolve_path_expression(&PathExpressionAST {
                 path: vec![assignment.column_name.clone()],
             })?;
             assignments.push(BoundAssignmentAST {
@@ -251,9 +269,11 @@ impl Binder {
         &mut self,
         expression: &PathExpressionAST,
     ) -> Result<BoundExpressionAST> {
+        let (column_index, data_type) = self.resolve_path_expression(expression)?;
         Ok(BoundExpressionAST::Path(BoundPathExpressionAST {
             path: expression.path.clone(),
-            column_index: self.resolve_path_expression(expression)?,
+            column_index,
+            data_type,
         }))
     }
 
@@ -263,6 +283,11 @@ impl Binder {
     ) -> Result<BoundExpressionAST> {
         Ok(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
             value: expression.value.clone(),
+            data_type: match expression.value {
+                Value::Boolean(_) => DataType::Boolean,
+                Value::Int(_) => DataType::Int,
+                Value::Varchar(_) => DataType::Varchar,
+            },
         }))
     }
 
@@ -279,7 +304,10 @@ impl Binder {
         }))
     }
 
-    fn resolve_path_expression(&mut self, expression: &PathExpressionAST) -> Result<usize> {
+    fn resolve_path_expression(
+        &mut self,
+        expression: &PathExpressionAST,
+    ) -> Result<(usize, DataType)> {
         match &self.scope {
             Some(Scope::Base(scope)) => {
                 self.resolve_path_expression_base(&scope.clone(), expression)
@@ -292,11 +320,11 @@ impl Binder {
         &mut self,
         scope: &BoundBaseTableReferenceAST,
         expression: &PathExpressionAST,
-    ) -> Result<usize> {
+    ) -> Result<(usize, DataType)> {
         if expression.path.len() == 1 {
             for (i, column) in scope.schema.columns.iter().enumerate() {
                 if column.name == expression.path[0] {
-                    return Ok(i);
+                    return Ok((i, column.data_type.clone()));
                 }
             }
             Err(anyhow::anyhow!(
@@ -311,7 +339,7 @@ impl Binder {
             }
             for (i, column) in scope.schema.columns.iter().enumerate() {
                 if column.name == expression.path[1] {
-                    return Ok(i);
+                    return Ok((i, column.data_type.clone()));
                 }
             }
             Err(anyhow::anyhow!(
@@ -338,6 +366,22 @@ impl BoundExpressionAST {
                 let right = binary_expression.right.eval(tuple, schema);
                 match binary_expression.operator {
                     BinaryOperator::Equal => Value::Boolean(BooleanValue(left == right)),
+                }
+            }
+        }
+    }
+
+    pub fn data_type(&self) -> DataType {
+        match self {
+            BoundExpressionAST::Path(path_expression) => path_expression.data_type.clone(),
+            BoundExpressionAST::Literal(literal_expression) => literal_expression.data_type.clone(),
+            BoundExpressionAST::Binary(binary_expression) => {
+                let left = binary_expression.left.data_type();
+                let right = binary_expression.right.data_type();
+                if left == right {
+                    left
+                } else {
+                    unimplemented!()
                 }
             }
         }
