@@ -71,6 +71,10 @@ impl Session {
                         .map_err(|_| anyhow!("lock error"))?
                         .rollback(txn_id)?;
                 }
+                let response = format!("{}", e);
+                self.stream.write(&(response.len() as u32).to_be_bytes())?;
+                self.stream.write_all(response.as_bytes())?;
+                self.stream.flush()?;
                 Err(e)
             }
         }
