@@ -6,6 +6,7 @@ pub mod common;
 pub mod concurrency;
 pub mod disk;
 pub mod executor;
+pub mod instance;
 pub mod lexer;
 pub mod lock;
 pub mod page;

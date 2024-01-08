@@ -88,7 +88,6 @@ impl Planner {
             BoundStatementAST::Update(update_statement) => {
                 self.plan_update_statement(update_statement)
             }
-            _ => unimplemented!(),
         }
     }
     fn plan_select_statement(&self, select_statement: &BoundSelectStatementAST) -> Plan {
@@ -114,7 +113,6 @@ impl Planner {
             BoundTableReferenceAST::Base(table_reference) => {
                 self.plan_base_table_reference(table_reference)
             }
-            _ => unimplemented!(),
         }
     }
     fn plan_base_table_reference(&self, table_reference: &BoundBaseTableReferenceAST) -> Plan {

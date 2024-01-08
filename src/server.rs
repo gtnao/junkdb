@@ -86,7 +86,7 @@ fn handle_connection(
     let mut parser = Parser::new(tokens);
     let statement = parser.parse()?;
 
-    let mut response = String::new();
+    let response;
 
     match statement {
         StatementAST::CreateTable(ast) => {
