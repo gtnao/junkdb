@@ -13,6 +13,9 @@ pub enum StatementAST {
     Insert(InsertStatementAST),
     Delete(DeleteStatementAST),
     Update(UpdateStatementAST),
+    Begin,
+    Commit,
+    Rollback,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CreateTableStatementAST {
@@ -122,6 +125,18 @@ impl Parser {
         }
         if self.match_token(Token::Keyword(Keyword::Update)) {
             return Ok(StatementAST::Update(self.update_statement()?));
+        }
+        if self.match_token(Token::Keyword(Keyword::Begin)) {
+            self.consume_token(Token::Keyword(Keyword::Begin));
+            return Ok(StatementAST::Begin);
+        }
+        if self.match_token(Token::Keyword(Keyword::Commit)) {
+            self.consume_token(Token::Keyword(Keyword::Commit));
+            return Ok(StatementAST::Commit);
+        }
+        if self.match_token(Token::Keyword(Keyword::Rollback)) {
+            self.consume_token(Token::Keyword(Keyword::Rollback));
+            return Ok(StatementAST::Rollback);
         }
         Err(anyhow!("invalid statement"))
     }

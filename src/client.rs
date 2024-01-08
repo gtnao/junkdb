@@ -7,7 +7,11 @@ use std::{
 };
 
 pub fn client_start() -> Result<()> {
+    println!("connecting to toydb server...");
+    let mut stream = TcpStream::connect("127.0.0.1:7878")?;
+    println!("connected!");
     println!("Welcome to toydb!");
+    println!("Type \"exit\" or \"quit\" to exit.");
 
     let mut history = BasicHistory::new().max_entries(8).no_duplicates(true);
     loop {
@@ -20,7 +24,6 @@ pub fn client_start() -> Result<()> {
                 process::exit(0);
             }
 
-            let mut stream = TcpStream::connect("127.0.0.1:7878")?;
             stream.write(&(cmd.len() as u32).to_be_bytes())?;
             stream.write(cmd.as_bytes())?;
             stream.flush()?;
