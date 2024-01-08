@@ -5,13 +5,13 @@
 
 # Overview
 
-toydb is a Relational Database Management System written in Rust for my own study purposes.
+**toydb** is a Relational Database Management System written in Rust for my own study purposes.
 
 # Screenshot
 
-# Basic SQL
+The following shows REPEATABLE READ implemented via snapshot isolation.
 
-![toydb1](https://github.com/gtnao0219/toydb/assets/25474324/627317ca-76ca-4803-9dc6-639abac2995a)
+![mvcc](https://github.com/gtnao0219/toydb/assets/25474324/74254571-b03c-45e6-b515-f5962bb27f76)
 
 # Feature
 
