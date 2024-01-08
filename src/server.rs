@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use prettytable::{Cell, Row, Table};
+use signal_hook::{consts::TERM_SIGNALS, iterator::Signals};
 
 use crate::{
     instance::Instance,
@@ -20,6 +21,16 @@ pub fn server_start(init: bool) -> Result<()> {
 
     // init
     let instance = Arc::new(RwLock::new(Instance::new("data", init)?));
+
+    let instance_clone = instance.clone();
+    let mut signals = Signals::new(TERM_SIGNALS)?;
+    thread::spawn(move || {
+        for _ in signals.forever() {
+            println!("toydb server shutdown...");
+            instance_clone.read().unwrap().shutdown().unwrap();
+            std::process::exit(0);
+        }
+    });
 
     // listen
     let listener = TcpListener::bind("127.0.0.1:7878")?;
@@ -91,12 +102,6 @@ fn handle_connection(mut stream: TcpStream, instance: Arc<RwLock<Instance>>) -> 
     stream.write(&(response.len() as u32).to_be_bytes())?;
     stream.write_all(response.as_bytes())?;
     stream.flush()?;
-
-    // TODO: signal trap
-    instance
-        .read()
-        .map_err(|_| anyhow!("lock error"))?
-        .shutdown()?;
 
     Ok(())
 }

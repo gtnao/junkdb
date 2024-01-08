@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.79"
 dialoguer = { version = "0.11.0", features = ["history"] }
 prettytable-rs = "0.10.0"
+signal-hook = "0.3.17"
 
 [dev-dependencies]
 tempfile = "3.9.0"
