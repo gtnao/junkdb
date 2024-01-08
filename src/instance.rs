@@ -35,7 +35,7 @@ impl Instance {
             fs::create_dir_all(dir)?;
         }
 
-        let data_file = format!("{}/data", dir);
+        let data_file = format!("{}/data.db", dir);
         let txn_log_file = format!("{}/txn.log", dir);
 
         let disk_manager = DiskManager::new(&data_file)?;
@@ -153,7 +153,7 @@ mod tests {
         let dir = temp_dir.path().join("test");
         Instance::new(dir.to_str().unwrap(), true)?;
         assert!(dir.exists());
-        assert!(dir.join("data").exists());
+        assert!(dir.join("data.db").exists());
         assert!(dir.join("txn.log").exists());
         Ok(())
     }
@@ -171,7 +171,7 @@ mod tests {
         instance.shutdown()?;
         Instance::new(dir.to_str().unwrap(), true)?;
         assert!(created_at < fs::metadata(&dir)?.created()?);
-        assert!(dir.join("data").exists());
+        assert!(dir.join("data.db").exists());
         assert!(dir.join("txn.log").exists());
         Ok(())
     }
@@ -188,7 +188,7 @@ mod tests {
         instance.shutdown()?;
         Instance::new(dir.to_str().unwrap(), false)?;
         assert_eq!(created_at, fs::metadata(&dir)?.created()?);
-        assert!(dir.join("data").exists());
+        assert!(dir.join("data.db").exists());
         assert!(dir.join("txn.log").exists());
         Ok(())
     }
