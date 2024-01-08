@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 use crate::{catalog::Schema, plan::InsertPlan, table::TableHeap, tuple::Tuple};
 
@@ -7,6 +7,7 @@ use super::ExecutorContext;
 pub struct InsertExecutor<'a> {
     pub plan: InsertPlan,
     pub executor_context: &'a ExecutorContext,
+    pub count: usize,
 }
 
 impl InsertExecutor<'_> {
@@ -15,14 +16,8 @@ impl InsertExecutor<'_> {
     }
     pub fn next(&mut self) -> Result<Option<Tuple>> {
         let txn_id = self.executor_context.transaction_id;
-        let first_page_id = self
-            .executor_context
-            .catalog
-            .lock()
-            .map_err(|_| anyhow!("lock error"))?
-            .get_first_page_id_by_table_name(&self.plan.table_name, txn_id)?;
         let mut table_heap = TableHeap::new(
-            first_page_id,
+            self.plan.first_page_id,
             self.executor_context.buffer_pool_manager.clone(),
             self.executor_context.transaction_manager.clone(),
             self.executor_context.lock_manager.clone(),
@@ -36,6 +31,7 @@ impl InsertExecutor<'_> {
             .map(|e| e.eval(&Tuple::new(None, &vec![]), &Schema { columns: vec![] }))
             .collect::<Vec<_>>();
         table_heap.insert(&values)?;
+        self.count += 1;
         Ok(None)
     }
 }

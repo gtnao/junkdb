@@ -10,15 +10,16 @@ use anyhow::{anyhow, Result};
 use prettytable::{Cell, Row, Table};
 
 use crate::{
+    binder::Binder,
     buffer::BufferPoolManager,
-    catalog::{Catalog, Column, DataType, Schema},
+    catalog::{Catalog, Column, Schema},
     concurrency::{IsolationLevel, TransactionManager},
     disk::DiskManager,
     executor::{ExecutorContext, ExecutorEngine},
     lexer::tokenize,
     lock::LockManager,
-    parser::{ExpressionAST, Parser, StatementAST, TableReferenceAST},
-    plan::{Expression, InsertPlan, LiteralExpression, Plan, SeqScanPlan},
+    parser::{Parser, StatementAST},
+    plan::Planner,
     value::Value,
 };
 
@@ -118,6 +119,11 @@ fn handle_connection(
                 .lock()
                 .map_err(|_| anyhow!("lock error"))?
                 .begin();
+            let mut binder = Binder::new(catalog.clone(), txn_id);
+            let bound_statement = binder.bind_statement(&statement)?;
+            let planner = Planner::new(bound_statement);
+            let plan = planner.plan();
+            let schema = plan.schema().clone();
             let executor_context = ExecutorContext {
                 transaction_id: txn_id,
                 buffer_pool_manager: buffer_pool_manager.clone(),
@@ -125,77 +131,31 @@ fn handle_connection(
                 transaction_manager: transaction_manager.clone(),
                 catalog: catalog.clone(),
             };
-            match statement {
-                StatementAST::Insert(ast) => {
-                    let table_name = ast.table_name;
-                    let values = ast.values;
-                    let plan = Plan::Insert(InsertPlan {
-                        table_name,
-                        values: values
-                            .iter()
-                            .map(|exp| {
-                                Expression::Literal(LiteralExpression {
-                                    value: match exp {
-                                        ExpressionAST::Literal(ast) => ast.value.clone(),
-                                        _ => unreachable!(),
-                                    },
-                                })
-                            })
-                            .collect(),
-                        schema: Schema {
-                            columns: vec![Column {
-                                name: "__cnt".to_string(),
-                                data_type: DataType::Int,
-                            }],
-                        },
-                    });
-                    let mut executor = ExecutorEngine::new(plan, executor_context);
-                    executor.execute()?;
-                    transaction_manager
-                        .lock()
-                        .map_err(|_| anyhow!("lock error"))?
-                        .commit(txn_id)?;
-                    response = format!("inserted.");
-                }
-                StatementAST::Select(ast) => {
-                    let table_name = match ast.table_reference {
-                        TableReferenceAST::Base(ast) => ast.table_name,
-                        _ => unreachable!(),
-                    };
-                    let schema = catalog
-                        .lock()
-                        .map_err(|_| anyhow!("lock error"))?
-                        .get_schema_by_table_name(&table_name, txn_id)?;
-                    let plan = Plan::SeqScan(SeqScanPlan {
-                        table_name,
-                        schema: schema.clone(),
-                    });
-                    let mut executor = ExecutorEngine::new(plan, executor_context);
-                    let rows = executor.execute()?;
-                    transaction_manager
-                        .lock()
-                        .map_err(|_| anyhow!("lock error"))?
-                        .commit(txn_id)?;
-                    // TODO: move to client
-                    let mut table_view = Table::new();
-                    table_view.set_titles(Row::new(
-                        schema.columns.iter().map(|c| Cell::new(&c.name)).collect(),
-                    ));
-                    for row in rows {
-                        let cells = row
-                            .iter()
-                            .map(|v| match v {
-                                Value::Int(v) => Cell::new(&v.0.to_string()),
-                                Value::Varchar(v) => Cell::new(&v.0),
-                                Value::Boolean(v) => Cell::new(&v.0.to_string()),
-                            })
-                            .collect::<Vec<_>>();
-                        table_view.add_row(Row::new(cells));
-                    }
-                    response = table_view.to_string();
-                }
-                _ => {}
+            let mut executor_engine = ExecutorEngine::new(plan, executor_context);
+            let rows = executor_engine.execute()?;
+            transaction_manager
+                .lock()
+                .map_err(|_| anyhow!("lock error"))?
+                .commit(txn_id)?;
+            // TODO: move to client
+            let mut table_view = Table::new();
+            let mut header = vec![];
+            for column in schema.columns {
+                header.push(Cell::new(&column.name));
             }
+            table_view.set_titles(Row::new(header));
+            for row in rows {
+                let cells = row
+                    .iter()
+                    .map(|v| match v {
+                        Value::Int(v) => Cell::new(&v.0.to_string()),
+                        Value::Varchar(v) => Cell::new(&v.0),
+                        Value::Boolean(v) => Cell::new(&v.0.to_string()),
+                    })
+                    .collect::<Vec<_>>();
+                table_view.add_row(Row::new(cells));
+            }
+            response = format!("{}", table_view);
         }
     };
 

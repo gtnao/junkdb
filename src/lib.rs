@@ -1,3 +1,4 @@
+pub mod binder;
 pub mod buffer;
 pub mod catalog;
 pub mod client;

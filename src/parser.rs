@@ -6,7 +6,7 @@ use crate::{
     value::Value,
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum StatementAST {
     CreateTable(CreateTableStatementAST),
     Select(SelectStatementAST),
@@ -14,78 +14,78 @@ pub enum StatementAST {
     Delete(DeleteStatementAST),
     Update(UpdateStatementAST),
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CreateTableStatementAST {
     pub table_name: String,
     pub elements: Vec<TableElementAST>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TableElementAST {
     pub column_name: String,
     pub data_type: DataType,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SelectStatementAST {
     pub select_elements: Vec<SelectElementAST>,
     pub table_reference: TableReferenceAST,
     pub condition: Option<ExpressionAST>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SelectElementAST {
     pub expression: ExpressionAST,
     pub alias: Option<String>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TableReferenceAST {
     Base(BaseTableReferenceAST),
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BaseTableReferenceAST {
     pub table_name: String,
     pub alias: Option<String>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InsertStatementAST {
     pub table_name: String,
     pub values: Vec<ExpressionAST>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DeleteStatementAST {
-    pub table_name: String,
+    pub table_reference: BaseTableReferenceAST,
     pub condition: Option<ExpressionAST>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct UpdateStatementAST {
-    pub table_name: String,
+    pub table_reference: BaseTableReferenceAST,
     pub assignments: Vec<AssignmentAST>,
     pub condition: Option<ExpressionAST>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AssignmentAST {
     pub column_name: String,
     pub value: ExpressionAST,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExpressionAST {
     Path(PathExpressionAST),
     Literal(LiteralExpressionAST),
     Binary(BinaryExpressionAST),
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PathExpressionAST {
     pub path: Vec<String>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LiteralExpressionAST {
     pub value: Value,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BinaryExpressionAST {
     pub operator: BinaryOperator,
     pub left: Box<ExpressionAST>,
     pub right: Box<ExpressionAST>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BinaryOperator {
     Equal,
 }
@@ -116,6 +116,12 @@ impl Parser {
         }
         if self.match_token(Token::Keyword(Keyword::Insert)) {
             return Ok(StatementAST::Insert(self.insert_statement()?));
+        }
+        if self.match_token(Token::Keyword(Keyword::Delete)) {
+            return Ok(StatementAST::Delete(self.delete_statement()?));
+        }
+        if self.match_token(Token::Keyword(Keyword::Update)) {
+            return Ok(StatementAST::Update(self.update_statement()?));
         }
         Err(anyhow!("invalid statement"))
     }
@@ -165,14 +171,19 @@ impl Parser {
     }
     fn select_statement(&mut self) -> Result<SelectStatementAST> {
         self.consume_token_or_error(Token::Keyword(Keyword::Select))?;
-        let mut select_elements = Vec::new();
-        loop {
-            select_elements.push(self.select_element()?);
-            if self.consume_token(Token::Comma) {
-                continue;
+        let select_elements = if self.consume_token(Token::Asterisk) {
+            Vec::new()
+        } else {
+            let mut res = Vec::new();
+            loop {
+                res.push(self.select_element()?);
+                if self.consume_token(Token::Comma) {
+                    continue;
+                }
+                break;
             }
-            break;
-        }
+            res
+        };
         self.consume_token_or_error(Token::Keyword(Keyword::From))?;
         let table_reference = self.table_reference()?;
         let condition = if self.consume_token(Token::Keyword(Keyword::Where)) {
@@ -196,16 +207,16 @@ impl Parser {
         Ok(SelectElementAST { expression, alias })
     }
     fn table_reference(&mut self) -> Result<TableReferenceAST> {
+        Ok(TableReferenceAST::Base(self.base_table_reference()?))
+    }
+    fn base_table_reference(&mut self) -> Result<BaseTableReferenceAST> {
         let table_name = self.identifier()?;
         let alias = if self.consume_token(Token::Keyword(Keyword::As)) {
             Some(self.identifier()?)
         } else {
             None
         };
-        Ok(TableReferenceAST::Base(BaseTableReferenceAST {
-            table_name,
-            alias,
-        }))
+        Ok(BaseTableReferenceAST { table_name, alias })
     }
     fn insert_statement(&mut self) -> Result<InsertStatementAST> {
         self.consume_token_or_error(Token::Keyword(Keyword::Insert))?;
@@ -223,6 +234,49 @@ impl Parser {
         }
         self.consume_token_or_error(Token::RightParen)?;
         Ok(InsertStatementAST { table_name, values })
+    }
+    fn delete_statement(&mut self) -> Result<DeleteStatementAST> {
+        self.consume_token_or_error(Token::Keyword(Keyword::Delete))?;
+        self.consume_token_or_error(Token::Keyword(Keyword::From))?;
+        let table_reference = self.base_table_reference()?;
+        let condition = if self.consume_token(Token::Keyword(Keyword::Where)) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+        Ok(DeleteStatementAST {
+            table_reference,
+            condition,
+        })
+    }
+    fn update_statement(&mut self) -> Result<UpdateStatementAST> {
+        self.consume_token_or_error(Token::Keyword(Keyword::Update))?;
+        let table_reference = self.base_table_reference()?;
+        self.consume_token_or_error(Token::Keyword(Keyword::Set))?;
+        let mut assignments = Vec::new();
+        loop {
+            assignments.push(self.assignment()?);
+            if self.consume_token(Token::Comma) {
+                continue;
+            }
+            break;
+        }
+        let condition = if self.consume_token(Token::Keyword(Keyword::Where)) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+        Ok(UpdateStatementAST {
+            table_reference,
+            assignments,
+            condition,
+        })
+    }
+    fn assignment(&mut self) -> Result<AssignmentAST> {
+        let column_name = self.identifier()?;
+        self.consume_token_or_error(Token::Equal)?;
+        let value = self.expression()?;
+        Ok(AssignmentAST { column_name, value })
     }
 
     fn expression(&mut self) -> Result<ExpressionAST> {
@@ -414,6 +468,26 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_select_asterisk() -> Result<()> {
+        let sql = "SELECT * FROM users";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        assert_eq!(
+            statement,
+            StatementAST::Select(SelectStatementAST {
+                select_elements: vec![],
+                table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
+                    table_name: String::from("users"),
+                    alias: None,
+                }),
+                condition: None,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_parse_insert() -> Result<()> {
         let sql = "INSERT INTO users VALUES (1, 'foo', true)";
         let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
@@ -434,6 +508,74 @@ mod tests {
                         value: Value::Boolean(BooleanValue(true)),
                     }),
                 ],
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_delete() -> Result<()> {
+        let sql = "DELETE FROM users WHERE id = 1";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        assert_eq!(
+            statement,
+            StatementAST::Delete(DeleteStatementAST {
+                table_reference: BaseTableReferenceAST {
+                    table_name: String::from("users"),
+                    alias: None,
+                },
+                condition: Some(ExpressionAST::Binary(BinaryExpressionAST {
+                    operator: BinaryOperator::Equal,
+                    left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                        path: vec![String::from("id")],
+                    })),
+                    right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Int(IntValue(1)),
+                    })),
+                })),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_update() -> Result<()> {
+        let sql = "UPDATE users SET name = 'foo', age = 30 WHERE id = 1";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        assert_eq!(
+            statement,
+            StatementAST::Update(UpdateStatementAST {
+                table_reference: BaseTableReferenceAST {
+                    table_name: String::from("users"),
+                    alias: None,
+                },
+                assignments: vec![
+                    AssignmentAST {
+                        column_name: String::from("name"),
+                        value: ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Varchar(VarcharValue(String::from("foo"))),
+                        }),
+                    },
+                    AssignmentAST {
+                        column_name: String::from("age"),
+                        value: ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Int(IntValue(30)),
+                        }),
+                    }
+                ],
+                condition: Some(ExpressionAST::Binary(BinaryExpressionAST {
+                    operator: BinaryOperator::Equal,
+                    left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                        path: vec![String::from("id")],
+                    })),
+                    right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Int(IntValue(1)),
+                    })),
+                })),
             })
         );
         Ok(())

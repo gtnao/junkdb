@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 
 use crate::value::{BooleanValue, IntValue, Value, VarcharValue};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     Identifier(String),
     Keyword(Keyword),
@@ -20,7 +20,7 @@ pub enum Token {
     EOF,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Keyword {
     Create,
     Table,

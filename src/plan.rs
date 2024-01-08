@@ -1,7 +1,12 @@
 use crate::{
-    catalog::Schema,
-    tuple::Tuple,
-    value::{BooleanValue, Value},
+    binder::{
+        BoundAssignmentAST, BoundBaseTableReferenceAST, BoundDeleteStatementAST,
+        BoundExpressionAST, BoundInsertStatementAST, BoundSelectElementAST,
+        BoundSelectStatementAST, BoundStatementAST, BoundTableReferenceAST,
+        BoundUpdateStatementAST,
+    },
+    catalog::{Column, DataType, Schema},
+    common::PageID,
 };
 
 #[derive(Debug, Clone)]
@@ -27,104 +32,156 @@ impl Plan {
 }
 #[derive(Debug, Clone)]
 pub struct SeqScanPlan {
-    pub table_name: String,
+    pub first_page_id: PageID,
     pub schema: Schema,
 }
 #[derive(Debug, Clone)]
 pub struct FilterPlan {
-    pub predicate: Expression,
+    pub condition: BoundExpressionAST,
     pub schema: Schema,
     pub child: Box<Plan>,
 }
 #[derive(Debug, Clone)]
 pub struct ProjectPlan {
-    pub select_elements: Vec<SelectElement>,
+    pub select_elements: Vec<BoundSelectElementAST>,
     pub schema: Schema,
     pub child: Box<Plan>,
 }
 #[derive(Debug, Clone)]
-pub struct SelectElement {
-    pub expression: Expression,
-    pub alias: Option<String>,
-}
-#[derive(Debug, Clone)]
 pub struct InsertPlan {
-    pub table_name: String,
-    pub values: Vec<Expression>,
+    pub first_page_id: PageID,
+    pub values: Vec<BoundExpressionAST>,
     pub schema: Schema,
 }
 #[derive(Debug, Clone)]
 pub struct DeletePlan {
-    pub table_name: String,
+    pub first_page_id: PageID,
     pub schema: Schema,
     pub child: Box<Plan>,
 }
 #[derive(Debug, Clone)]
 pub struct UpdatePlan {
-    pub table_name: String,
-    pub assignments: Vec<Assignment>,
+    pub first_page_id: PageID,
+    pub assignments: Vec<BoundAssignmentAST>,
     pub schema: Schema,
     pub child: Box<Plan>,
 }
-#[derive(Debug, Clone)]
-pub struct Assignment {
-    pub column_index: usize,
-    pub expression: Expression,
-}
 
-#[derive(Debug, Clone)]
-pub enum Expression {
-    Path(PathExpression),
-    Literal(LiteralExpression),
-    Binary(BinaryExpression),
+pub struct Planner {
+    statement: BoundStatementAST,
 }
-#[derive(Debug, Clone)]
-pub struct PathExpression {
-    pub column_name: String,
-}
-#[derive(Debug, Clone)]
-pub struct LiteralExpression {
-    pub value: Value,
-}
-#[derive(Debug, Clone)]
-pub struct BinaryExpression {
-    pub operator: BinaryOperator,
-    pub left: Box<Expression>,
-    pub right: Box<Expression>,
-}
-#[derive(Debug, Clone)]
-pub enum BinaryOperator {
-    Equal,
-    NotEqual,
-    LessThan,
-    LessThanOrEqual,
-    GreaterThan,
-    GreaterThanOrEqual,
-}
-
-impl Expression {
-    pub fn eval(&self, tuple: &Tuple, schema: &Schema) -> Value {
-        match self {
-            Expression::Path(path_expression) => {
-                let index = schema.column_index(&path_expression.column_name).unwrap();
-                let values = tuple.values(schema);
-                values[index].clone()
+impl Planner {
+    pub fn new(statement: BoundStatementAST) -> Self {
+        Self { statement }
+    }
+    pub fn plan(&self) -> Plan {
+        match &self.statement {
+            BoundStatementAST::Select(select_statement) => {
+                self.plan_select_statement(select_statement)
             }
-            Expression::Literal(literal_expression) => literal_expression.value.clone(),
-            Expression::Binary(binary_expression) => {
-                let left = binary_expression.left.eval(tuple, schema);
-                let right = binary_expression.right.eval(tuple, schema);
-                match binary_expression.operator {
-                    BinaryOperator::Equal => Value::Boolean(BooleanValue(left == right)),
-                    BinaryOperator::NotEqual => Value::Boolean(BooleanValue(left != right)),
-                    BinaryOperator::LessThan => Value::Boolean(BooleanValue(left < right)),
-                    BinaryOperator::LessThanOrEqual => Value::Boolean(BooleanValue(left <= right)),
-                    BinaryOperator::GreaterThan => Value::Boolean(BooleanValue(left > right)),
-                    BinaryOperator::GreaterThanOrEqual => {
-                        Value::Boolean(BooleanValue(left >= right))
-                    }
-                }
+            BoundStatementAST::Insert(insert_statement) => {
+                self.plan_insert_statement(insert_statement)
             }
+            BoundStatementAST::Delete(delete_statement) => {
+                self.plan_delete_statement(delete_statement)
+            }
+            BoundStatementAST::Update(update_statement) => {
+                self.plan_update_statement(update_statement)
+            }
+            _ => unimplemented!(),
         }
+    }
+    fn plan_select_statement(&self, select_statement: &BoundSelectStatementAST) -> Plan {
+        let mut plan = self.plan_table_reference(&select_statement.table_reference);
+        if let Some(condition) = &select_statement.condition {
+            plan = Plan::Filter(FilterPlan {
+                condition: condition.clone(),
+                schema: plan.schema().clone(),
+                child: Box::new(plan),
+            });
+        }
+        if !select_statement.select_elements.is_empty() {
+            plan = Plan::Project(ProjectPlan {
+                select_elements: select_statement.select_elements.clone(),
+                schema: plan.schema().clone(),
+                child: Box::new(plan),
+            });
+        }
+        plan
+    }
+    fn plan_table_reference(&self, table_reference: &BoundTableReferenceAST) -> Plan {
+        match table_reference {
+            BoundTableReferenceAST::Base(table_reference) => {
+                self.plan_base_table_reference(table_reference)
+            }
+            _ => unimplemented!(),
+        }
+    }
+    fn plan_base_table_reference(&self, table_reference: &BoundBaseTableReferenceAST) -> Plan {
+        Plan::SeqScan(SeqScanPlan {
+            first_page_id: table_reference.first_page_id,
+            schema: table_reference.schema.clone(),
+        })
+    }
+    fn plan_insert_statement(&self, insert_statement: &BoundInsertStatementAST) -> Plan {
+        Plan::Insert(InsertPlan {
+            first_page_id: insert_statement.first_page_id,
+            values: insert_statement.values.clone(),
+            schema: Schema {
+                columns: vec![Column {
+                    name: "__insert_count".to_owned(),
+                    data_type: DataType::Int,
+                }],
+            },
+        })
+    }
+    fn plan_delete_statement(&self, delete_statement: &BoundDeleteStatementAST) -> Plan {
+        let mut plan = self.plan_base_table_reference(&delete_statement.table_reference);
+        let first_page_id = match &plan {
+            Plan::SeqScan(plan) => plan.first_page_id,
+            _ => unreachable!(),
+        };
+        if let Some(condition) = &delete_statement.condition {
+            plan = Plan::Filter(FilterPlan {
+                condition: condition.clone(),
+                schema: plan.schema().clone(),
+                child: Box::new(plan),
+            });
+        }
+        Plan::Delete(DeletePlan {
+            first_page_id,
+            schema: Schema {
+                columns: vec![Column {
+                    name: "__delete_count".to_owned(),
+                    data_type: DataType::Int,
+                }],
+            },
+            child: Box::new(plan),
+        })
+    }
+    fn plan_update_statement(&self, update_statement: &BoundUpdateStatementAST) -> Plan {
+        let mut plan = self.plan_base_table_reference(&update_statement.table_reference);
+        let first_page_id = match &plan {
+            Plan::SeqScan(plan) => plan.first_page_id,
+            _ => unreachable!(),
+        };
+        if let Some(condition) = &update_statement.condition {
+            plan = Plan::Filter(FilterPlan {
+                condition: condition.clone(),
+                schema: plan.schema().clone(),
+                child: Box::new(plan),
+            });
+        }
+        Plan::Update(UpdatePlan {
+            first_page_id,
+            assignments: update_statement.assignments.clone(),
+            schema: Schema {
+                columns: vec![Column {
+                    name: "__update_count".to_owned(),
+                    data_type: DataType::Int,
+                }],
+            },
+            child: Box::new(plan),
+        })
     }
 }

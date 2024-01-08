@@ -12,7 +12,7 @@ use crate::{
     value::{IntValue, Value, VarcharValue},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Schema {
     pub columns: Vec<Column>,
 }
@@ -22,7 +22,7 @@ impl Schema {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Column {
     pub name: String,
     pub data_type: DataType,

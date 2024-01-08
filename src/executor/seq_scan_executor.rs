@@ -17,14 +17,8 @@ pub struct SeqScanExecutor<'a> {
 impl SeqScanExecutor<'_> {
     pub fn init(&mut self) -> Result<()> {
         let txn_id = self.executor_context.transaction_id;
-        let first_page_id = self
-            .executor_context
-            .catalog
-            .lock()
-            .map_err(|_| anyhow!("lock error"))?
-            .get_first_page_id_by_table_name(&self.plan.table_name, txn_id)?;
         let table_heap = TableHeap::new(
-            first_page_id,
+            self.plan.first_page_id,
             self.executor_context.buffer_pool_manager.clone(),
             self.executor_context.transaction_manager.clone(),
             self.executor_context.lock_manager.clone(),
