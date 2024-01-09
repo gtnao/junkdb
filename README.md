@@ -42,8 +42,8 @@ The following shows REPEATABLE READ implemented via snapshot isolation.
   - [x] LRU
 - [ ] Optimizer
   - [ ] Rule-based
-- [ ] Basic Data Type
-  - [x] INT, VARCHAR, BOOLEAN
+- [ ] Data Type
+  - [x] NUMBER(INT, UNSIGNED INT, BIGINT, UNSIGNED BIGINT), VARCHAR, BOOLEAN
   - [x] NULL
 - [x] Basic SQL Parser
 - [x] CLI
