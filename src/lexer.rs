@@ -44,7 +44,6 @@ pub enum Keyword {
     Unsigned,
     Varchar,
     Boolean,
-    Null,
     Begin,
     Commit,
     Rollback,
@@ -72,7 +71,6 @@ impl TryFrom<&str> for Keyword {
             "UNSIGNED" => Ok(Keyword::Unsigned),
             "VARCHAR" => Ok(Keyword::Varchar),
             "BOOLEAN" => Ok(Keyword::Boolean),
-            "NULL" => Ok(Keyword::Null),
             "BEGIN" => Ok(Keyword::Begin),
             "COMMIT" => Ok(Keyword::Commit),
             "ROLLBACK" => Ok(Keyword::Rollback),
@@ -265,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_all_keywords() -> Result<()> {
-        let text = "CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET SELECT INT INTEGER BIGINT BIGINTEGER VARCHAR BOOLEAN NULL BEGIN COMMIT ROLLBACK AS";
+        let text = "CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET SELECT INT INTEGER BIGINT BIGINTEGER VARCHAR BOOLEAN BEGIN COMMIT ROLLBACK AS";
         let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
@@ -288,7 +286,6 @@ mod tests {
                 Token::Keyword(Keyword::BigInteger),
                 Token::Keyword(Keyword::Varchar),
                 Token::Keyword(Keyword::Boolean),
-                Token::Keyword(Keyword::Null),
                 Token::Keyword(Keyword::Begin),
                 Token::Keyword(Keyword::Commit),
                 Token::Keyword(Keyword::Rollback),
@@ -301,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_all_literals() -> Result<()> {
-        let text = "1 2345 -1 -2345 -3000000000 3000000000 5000000000 9223372036854775808 'a' 'b\\'c' true False";
+        let text = "1 2345 -1 -2345 -3000000000 3000000000 5000000000 9223372036854775808 'a' 'b\\'c' true False NULL";
         let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
@@ -321,6 +318,7 @@ mod tests {
                 Token::Literal(Value::Varchar(VarcharValue("b'c".to_string()))),
                 Token::Literal(Value::Boolean(BooleanValue(true))),
                 Token::Literal(Value::Boolean(BooleanValue(false))),
+                Token::Literal(Value::Null),
                 Token::EOF,
             ]
         );
