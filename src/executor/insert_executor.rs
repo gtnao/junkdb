@@ -25,11 +25,16 @@ impl InsertExecutor<'_> {
         );
         let values = self
             .plan
-            .values
+            .table_schema
+            .columns
             .iter()
-            // dummy
-            .map(|e| e.eval(&Tuple::new(None, &vec![]), &Schema { columns: vec![] }))
-            .collect::<Vec<_>>();
+            .enumerate()
+            .map(|(i, c)| {
+                let raw_value = self.plan.values[i]
+                    .eval(&Tuple::new(None, &vec![]), &Schema { columns: vec![] });
+                raw_value.convert_to(&c.data_type)
+            })
+            .collect::<Result<Vec<_>>>()?;
         table_heap.insert(&values)?;
         self.count += 1;
         Ok(None)

@@ -50,6 +50,7 @@ pub struct ProjectPlan {
 #[derive(Debug, Clone)]
 pub struct InsertPlan {
     pub first_page_id: PageID,
+    pub table_schema: Schema,
     pub values: Vec<BoundExpressionAST>,
     pub schema: Schema,
 }
@@ -108,7 +109,11 @@ impl Planner {
                         .iter()
                         .map(|select_element| Column {
                             name: select_element.name.clone(),
-                            data_type: select_element.expression.data_type(),
+                            // TODO: not use dummy type
+                            data_type: select_element
+                                .expression
+                                .data_type()
+                                .unwrap_or(DataType::Boolean),
                         })
                         .collect(),
                 },
@@ -133,11 +138,12 @@ impl Planner {
     fn plan_insert_statement(&self, insert_statement: &BoundInsertStatementAST) -> Plan {
         Plan::Insert(InsertPlan {
             first_page_id: insert_statement.first_page_id,
+            table_schema: insert_statement.table_schema.clone(),
             values: insert_statement.values.clone(),
             schema: Schema {
                 columns: vec![Column {
                     name: "__insert_count".to_owned(),
-                    data_type: DataType::Int,
+                    data_type: DataType::UnsignedBigInteger,
                 }],
             },
         })
@@ -160,7 +166,7 @@ impl Planner {
             schema: Schema {
                 columns: vec![Column {
                     name: "__delete_count".to_owned(),
-                    data_type: DataType::Int,
+                    data_type: DataType::UnsignedBigInteger,
                 }],
             },
             child: Box::new(plan),
@@ -185,7 +191,7 @@ impl Planner {
             schema: Schema {
                 columns: vec![Column {
                     name: "__update_count".to_owned(),
-                    data_type: DataType::Int,
+                    data_type: DataType::UnsignedBigInteger,
                 }],
             },
             child: Box::new(plan),

@@ -48,6 +48,7 @@ pub struct BoundInsertStatementAST {
     pub table_name: String,
     pub values: Vec<BoundExpressionAST>,
     pub first_page_id: PageID,
+    pub table_schema: Schema,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundDeleteStatementAST {
@@ -81,7 +82,7 @@ pub struct BoundPathExpressionAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundLiteralExpressionAST {
     pub value: Value,
-    pub data_type: DataType,
+    pub data_type: Option<DataType>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundBinaryExpressionAST {
@@ -213,6 +214,7 @@ impl Binder {
             table_name: statement.table_name.clone(),
             values,
             first_page_id,
+            table_schema: schema,
         }))
     }
 
@@ -284,9 +286,13 @@ impl Binder {
         Ok(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
             value: expression.value.clone(),
             data_type: match expression.value {
-                Value::Boolean(_) => DataType::Boolean,
-                Value::Int(_) => DataType::Int,
-                Value::Varchar(_) => DataType::Varchar,
+                Value::Integer(_) => Some(DataType::Integer),
+                Value::UnsignedInteger(_) => Some(DataType::UnsignedInteger),
+                Value::BigInteger(_) => Some(DataType::BigInteger),
+                Value::UnsignedBigInteger(_) => Some(DataType::UnsignedBigInteger),
+                Value::Varchar(_) => Some(DataType::Varchar),
+                Value::Boolean(_) => Some(DataType::Boolean),
+                Value::Null => None,
             },
         }))
     }
@@ -365,23 +371,26 @@ impl BoundExpressionAST {
                 let left = binary_expression.left.eval(tuple, schema);
                 let right = binary_expression.right.eval(tuple, schema);
                 match binary_expression.operator {
-                    BinaryOperator::Equal => Value::Boolean(BooleanValue(left == right)),
+                    BinaryOperator::Equal => Value::Boolean(BooleanValue(left.perform_eq(&right))),
                 }
             }
         }
     }
 
-    pub fn data_type(&self) -> DataType {
+    pub fn data_type(&self) -> Option<DataType> {
         match self {
-            BoundExpressionAST::Path(path_expression) => path_expression.data_type.clone(),
+            BoundExpressionAST::Path(path_expression) => Some(path_expression.data_type.clone()),
             BoundExpressionAST::Literal(literal_expression) => literal_expression.data_type.clone(),
             BoundExpressionAST::Binary(binary_expression) => {
                 let left = binary_expression.left.data_type();
                 let right = binary_expression.right.data_type();
+                if left.is_none() || right.is_none() {
+                    return None;
+                }
                 if left == right {
                     left
                 } else {
-                    unimplemented!()
+                    Some(left.unwrap().convert_with(right.unwrap()))
                 }
             }
         }

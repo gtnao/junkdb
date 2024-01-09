@@ -169,9 +169,37 @@ impl Parser {
     }
     fn data_type(&mut self) -> Result<DataType> {
         match self.tokens[self.position] {
+            Token::Keyword(Keyword::Int) => {
+                self.consume_token(Token::Keyword(Keyword::Int));
+                if self.consume_token(Token::Keyword(Keyword::Unsigned)) {
+                    Ok(DataType::UnsignedInteger)
+                } else {
+                    Ok(DataType::Integer)
+                }
+            }
             Token::Keyword(Keyword::Integer) => {
                 self.consume_token(Token::Keyword(Keyword::Integer));
-                Ok(DataType::Int)
+                if self.consume_token(Token::Keyword(Keyword::Unsigned)) {
+                    Ok(DataType::UnsignedInteger)
+                } else {
+                    Ok(DataType::Integer)
+                }
+            }
+            Token::Keyword(Keyword::BigInt) => {
+                self.consume_token(Token::Keyword(Keyword::BigInt));
+                if self.consume_token(Token::Keyword(Keyword::Unsigned)) {
+                    Ok(DataType::UnsignedBigInteger)
+                } else {
+                    Ok(DataType::BigInteger)
+                }
+            }
+            Token::Keyword(Keyword::BigInteger) => {
+                self.consume_token(Token::Keyword(Keyword::BigInteger));
+                if self.consume_token(Token::Keyword(Keyword::Unsigned)) {
+                    Ok(DataType::UnsignedBigInteger)
+                } else {
+                    Ok(DataType::BigInteger)
+                }
             }
             Token::Keyword(Keyword::Varchar) => {
                 self.consume_token(Token::Keyword(Keyword::Varchar));
@@ -405,7 +433,7 @@ impl Parser {
 mod tests {
     use crate::{
         lexer::tokenize,
-        value::{BooleanValue, IntValue, VarcharValue},
+        value::{BooleanValue, IntegerValue, VarcharValue},
     };
 
     use anyhow::Result;
@@ -414,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_parse_create_table() -> Result<()> {
-        let sql = "CREATE TABLE users (id INTEGER, name VARCHAR, active BOOLEAN)";
+        let sql = "CREATE TABLE users (c0 INT, c1 INT UNSIGNED, c2 INTEGER, c3 INTEGER UNSIGNED, c4 BIGINT, c5 BIGINT UNSIGNED, c6 BIGINTEGER, c7 BIGINTEGER UNSIGNED, c8 VARCHAR, c9 BOOLEAN)";
         let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
 
         let statement = parser.parse()?;
@@ -424,15 +452,43 @@ mod tests {
                 table_name: String::from("users"),
                 elements: vec![
                     TableElementAST {
-                        column_name: String::from("id"),
-                        data_type: DataType::Int,
+                        column_name: String::from("c0"),
+                        data_type: DataType::Integer,
                     },
                     TableElementAST {
-                        column_name: String::from("name"),
+                        column_name: String::from("c1"),
+                        data_type: DataType::UnsignedInteger,
+                    },
+                    TableElementAST {
+                        column_name: String::from("c2"),
+                        data_type: DataType::Integer,
+                    },
+                    TableElementAST {
+                        column_name: String::from("c3"),
+                        data_type: DataType::UnsignedInteger,
+                    },
+                    TableElementAST {
+                        column_name: String::from("c4"),
+                        data_type: DataType::BigInteger,
+                    },
+                    TableElementAST {
+                        column_name: String::from("c5"),
+                        data_type: DataType::UnsignedBigInteger,
+                    },
+                    TableElementAST {
+                        column_name: String::from("c6"),
+                        data_type: DataType::BigInteger,
+                    },
+                    TableElementAST {
+                        column_name: String::from("c7"),
+                        data_type: DataType::UnsignedBigInteger,
+                    },
+                    TableElementAST {
+                        column_name: String::from("c8"),
                         data_type: DataType::Varchar,
                     },
                     TableElementAST {
-                        column_name: String::from("active"),
+                        column_name: String::from("c9"),
                         data_type: DataType::Boolean,
                     },
                 ],
@@ -474,7 +530,7 @@ mod tests {
                         path: vec![String::from("id")],
                     })),
                     right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
-                        value: Value::Int(IntValue(1)),
+                        value: Value::Integer(IntegerValue(1)),
                     })),
                 })),
             })
@@ -514,7 +570,7 @@ mod tests {
                 table_name: String::from("users"),
                 values: vec![
                     ExpressionAST::Literal(LiteralExpressionAST {
-                        value: Value::Int(IntValue(1)),
+                        value: Value::Integer(IntegerValue(1)),
                     }),
                     ExpressionAST::Literal(LiteralExpressionAST {
                         value: Value::Varchar(VarcharValue(String::from("foo"))),
@@ -547,7 +603,7 @@ mod tests {
                         path: vec![String::from("id")],
                     })),
                     right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
-                        value: Value::Int(IntValue(1)),
+                        value: Value::Integer(IntegerValue(1)),
                     })),
                 })),
             })
@@ -578,7 +634,7 @@ mod tests {
                     AssignmentAST {
                         column_name: String::from("age"),
                         value: ExpressionAST::Literal(LiteralExpressionAST {
-                            value: Value::Int(IntValue(30)),
+                            value: Value::Integer(IntegerValue(30)),
                         }),
                     }
                 ],
@@ -588,7 +644,7 @@ mod tests {
                         path: vec![String::from("id")],
                     })),
                     right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
-                        value: Value::Int(IntValue(1)),
+                        value: Value::Integer(IntegerValue(1)),
                     })),
                 })),
             })

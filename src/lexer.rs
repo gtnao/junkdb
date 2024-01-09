@@ -3,9 +3,12 @@ use std::str::Chars;
 
 use anyhow::{anyhow, Result};
 
-use crate::value::{BooleanValue, IntValue, Value, VarcharValue};
+use crate::value::{
+    BigIntegerValue, BooleanValue, IntegerValue, UnsignedBigIntegerValue, UnsignedIntegerValue,
+    Value, VarcharValue,
+};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Token {
     Identifier(String),
     Keyword(Keyword),
@@ -17,10 +20,11 @@ pub enum Token {
     LeftParen,
     RightParen,
     Equal,
+    Minus,
     EOF,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Keyword {
     Create,
     Table,
@@ -33,9 +37,14 @@ pub enum Keyword {
     Update,
     Set,
     Select,
+    Int,
     Integer,
+    BigInt,
+    BigInteger,
+    Unsigned,
     Varchar,
     Boolean,
+    Null,
     Begin,
     Commit,
     Rollback,
@@ -56,9 +65,14 @@ impl TryFrom<&str> for Keyword {
             "UPDATE" => Ok(Keyword::Update),
             "SET" => Ok(Keyword::Set),
             "SELECT" => Ok(Keyword::Select),
+            "INT" => Ok(Keyword::Int),
             "INTEGER" => Ok(Keyword::Integer),
+            "BIGINT" => Ok(Keyword::BigInt),
+            "BIGINTEGER" => Ok(Keyword::BigInteger),
+            "UNSIGNED" => Ok(Keyword::Unsigned),
             "VARCHAR" => Ok(Keyword::Varchar),
             "BOOLEAN" => Ok(Keyword::Boolean),
+            "NULL" => Ok(Keyword::Null),
             "BEGIN" => Ok(Keyword::Begin),
             "COMMIT" => Ok(Keyword::Commit),
             "ROLLBACK" => Ok(Keyword::Rollback),
@@ -80,7 +94,7 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                 loop {
                     match iter.peek() {
                         Some(cc) if '_' == *cc || cc.is_digit(10) || cc.is_alphabetic() => {
-                            ret = format!("{}{}", ret, cc.to_string());
+                            ret.push(*cc);
                             iter.next();
                         }
                         _ => {
@@ -94,6 +108,7 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                     match &*ret.to_uppercase() {
                         "TRUE" => tokens.push(Token::Literal(Value::Boolean(BooleanValue(true)))),
                         "FALSE" => tokens.push(Token::Literal(Value::Boolean(BooleanValue(false)))),
+                        "NULL" => tokens.push(Token::Literal(Value::Null)),
                         _ => tokens.push(Token::Identifier(ret)),
                     }
                 }
@@ -111,12 +126,44 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                 });
                 iter.next();
             }
+            Some(c) if *c == '-' => {
+                iter.next();
+                if let Some(cc) = iter.peek() {
+                    if cc.is_digit(10) {
+                        let mut ret = String::new();
+                        loop {
+                            match iter.peek() {
+                                Some(ccc) if ccc.is_digit(10) => {
+                                    ret.push(*ccc);
+                                    iter.next();
+                                }
+                                _ => {
+                                    break;
+                                }
+                            }
+                        }
+                        if let Ok(v) = ret.parse::<i32>() {
+                            tokens.push(Token::Literal(Value::Integer(IntegerValue(-v))));
+                        } else {
+                            if let Ok(v) = ret.parse::<i64>() {
+                                tokens.push(Token::Literal(Value::BigInteger(BigIntegerValue(-v))));
+                            } else {
+                                return Err(anyhow!("failed convert: {}", ret));
+                            }
+                        }
+                    } else {
+                        tokens.push(Token::Minus);
+                    }
+                } else {
+                    tokens.push(Token::Minus);
+                }
+            }
             Some(c) if c.is_digit(10) => {
                 let mut ret = String::new();
                 loop {
                     match iter.peek() {
                         Some(cc) if cc.is_digit(10) => {
-                            ret = format!("{}{}", ret, cc.to_string());
+                            ret.push(*cc);
                             iter.next();
                         }
                         _ => {
@@ -125,9 +172,25 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                     }
                 }
                 if let Ok(v) = ret.parse::<i32>() {
-                    tokens.push(Token::Literal(Value::Int(IntValue(v))));
+                    tokens.push(Token::Literal(Value::Integer(IntegerValue(v))));
                 } else {
-                    return Err(anyhow!("failed convert: {}", ret));
+                    if let Ok(v) = ret.parse::<u32>() {
+                        tokens.push(Token::Literal(Value::UnsignedInteger(
+                            UnsignedIntegerValue(v),
+                        )));
+                    } else {
+                        if let Ok(v) = ret.parse::<i64>() {
+                            tokens.push(Token::Literal(Value::BigInteger(BigIntegerValue(v))));
+                        } else {
+                            if let Ok(v) = ret.parse::<u64>() {
+                                tokens.push(Token::Literal(Value::UnsignedBigInteger(
+                                    UnsignedBigIntegerValue(v),
+                                )));
+                            } else {
+                                return Err(anyhow!("failed convert: {}", ret));
+                            }
+                        }
+                    }
                 }
             }
             Some('\'') => {
@@ -143,7 +206,7 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                             iter.next();
                             match iter.peek() {
                                 Some(cc) if '\'' == *cc => {
-                                    ret = format!("{}{}", ret, cc.to_string());
+                                    ret.push(*cc);
                                     iter.next();
                                 }
                                 _ => {
@@ -152,7 +215,7 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                             }
                         }
                         Some(c) => {
-                            ret = format!("{}{}", ret, c.to_string());
+                            ret.push(*c);
                             iter.next();
                         }
                         None => {
@@ -192,7 +255,7 @@ mod tests {
                 Token::Keyword(Keyword::Where),
                 Token::Identifier("id".to_string()),
                 Token::Equal,
-                Token::Literal(Value::Int(IntValue(1))),
+                Token::Literal(Value::Integer(IntegerValue(1))),
                 Token::Semicolon,
                 Token::EOF,
             ]
@@ -202,8 +265,8 @@ mod tests {
 
     #[test]
     fn test_all_keywords() -> Result<()> {
-        let query = "CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET SELECT INTEGER VARCHAR BOOLEAN BEGIN COMMIT ROLLBACK AS";
-        let mut iter = query.chars().peekable();
+        let text = "CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET SELECT INT INTEGER BIGINT BIGINTEGER VARCHAR BOOLEAN NULL BEGIN COMMIT ROLLBACK AS";
+        let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
             tokens,
@@ -219,9 +282,13 @@ mod tests {
                 Token::Keyword(Keyword::Update),
                 Token::Keyword(Keyword::Set),
                 Token::Keyword(Keyword::Select),
+                Token::Keyword(Keyword::Int),
                 Token::Keyword(Keyword::Integer),
+                Token::Keyword(Keyword::BigInt),
+                Token::Keyword(Keyword::BigInteger),
                 Token::Keyword(Keyword::Varchar),
                 Token::Keyword(Keyword::Boolean),
+                Token::Keyword(Keyword::Null),
                 Token::Keyword(Keyword::Begin),
                 Token::Keyword(Keyword::Commit),
                 Token::Keyword(Keyword::Rollback),
@@ -234,14 +301,22 @@ mod tests {
 
     #[test]
     fn test_all_literals() -> Result<()> {
-        let query = "1 2345 'a' 'b\\'c' true False";
-        let mut iter = query.chars().peekable();
+        let text = "1 2345 -1 -2345 -3000000000 3000000000 5000000000 9223372036854775808 'a' 'b\\'c' true False";
+        let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
             tokens,
             vec![
-                Token::Literal(Value::Int(IntValue(1))),
-                Token::Literal(Value::Int(IntValue(2345))),
+                Token::Literal(Value::Integer(IntegerValue(1))),
+                Token::Literal(Value::Integer(IntegerValue(2345))),
+                Token::Literal(Value::Integer(IntegerValue(-1))),
+                Token::Literal(Value::Integer(IntegerValue(-2345))),
+                Token::Literal(Value::BigInteger(BigIntegerValue(-3000000000))),
+                Token::Literal(Value::UnsignedInteger(UnsignedIntegerValue(3000000000))),
+                Token::Literal(Value::BigInteger(BigIntegerValue(5000000000))),
+                Token::Literal(Value::UnsignedBigInteger(UnsignedBigIntegerValue(
+                    9223372036854775808
+                ))),
                 Token::Literal(Value::Varchar(VarcharValue("a".to_string()))),
                 Token::Literal(Value::Varchar(VarcharValue("b'c".to_string()))),
                 Token::Literal(Value::Boolean(BooleanValue(true))),
@@ -254,8 +329,8 @@ mod tests {
 
     #[test]
     fn test_all_symbols() -> Result<()> {
-        let query = ", . ( ) * ; =";
-        let mut iter = query.chars().peekable();
+        let text = ", . ( ) * ; - =";
+        let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
             tokens,
@@ -266,6 +341,7 @@ mod tests {
                 Token::RightParen,
                 Token::Asterisk,
                 Token::Semicolon,
+                Token::Minus,
                 Token::Equal,
                 Token::EOF,
             ]

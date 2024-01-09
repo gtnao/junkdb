@@ -10,7 +10,7 @@ use crate::{
     lock::LockManager,
     plan::Plan,
     tuple::Tuple,
-    value::{IntValue, Value},
+    value::{UnsignedBigIntegerValue, Value},
 };
 
 use self::{
@@ -107,7 +107,9 @@ impl ExecutorEngine {
                 return None;
             }
         };
-        Some(vec![vec![Value::Int(IntValue(count as i32))]])
+        Some(vec![vec![Value::UnsignedBigInteger(
+            UnsignedBigIntegerValue(count as u64),
+        )]])
     }
     fn is_count_supported(&self, plan: &Plan) -> bool {
         match plan {

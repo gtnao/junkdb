@@ -74,7 +74,7 @@ mod tests {
     use super::*;
     use crate::{
         catalog::{Column, DataType},
-        value::{IntValue, VarcharValue},
+        value::{IntegerValue, VarcharValue},
     };
 
     #[test]
@@ -83,7 +83,7 @@ mod tests {
             columns: vec![
                 Column {
                     name: "id".to_string(),
-                    data_type: DataType::Int,
+                    data_type: DataType::Integer,
                 },
                 Column {
                     name: "name".to_string(),
@@ -91,14 +91,14 @@ mod tests {
                 },
                 Column {
                     name: "age".to_string(),
-                    data_type: DataType::Int,
+                    data_type: DataType::Integer,
                 },
             ],
         };
         let values = vec![
-            Value::Int(IntValue(1)),
+            Value::Integer(IntegerValue(1)),
             Value::Varchar(VarcharValue("foo".to_string())),
-            Value::Int(IntValue(20)),
+            Value::Integer(IntegerValue(20)),
         ];
         let tuple_data = Tuple::serialize(TransactionID(1), TransactionID(2), &values);
         let tuple = Tuple::new(None, &tuple_data);
@@ -107,9 +107,9 @@ mod tests {
         assert_eq!(
             tuple.values(&schema),
             vec![
-                Value::Int(IntValue(1)),
+                Value::Integer(IntegerValue(1)),
                 Value::Varchar(VarcharValue("foo".to_string())),
-                Value::Int(IntValue(20))
+                Value::Integer(IntegerValue(20))
             ]
         );
     }

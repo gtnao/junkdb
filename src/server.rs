@@ -14,7 +14,6 @@ use crate::{
     instance::Instance,
     lexer::tokenize,
     parser::{Parser, StatementAST},
-    value::Value,
 };
 
 pub fn server_start(init: bool) -> Result<()> {
@@ -174,11 +173,7 @@ impl Session {
                             for row in rows {
                                 let cells = row
                                     .iter()
-                                    .map(|v| match v {
-                                        Value::Int(v) => Cell::new(&v.0.to_string()),
-                                        Value::Varchar(v) => Cell::new(&v.0),
-                                        Value::Boolean(v) => Cell::new(&v.0.to_string()),
-                                    })
+                                    .map(|v| Cell::new(&v.to_string()))
                                     .collect::<Vec<_>>();
                                 table_view.add_row(Row::new(cells));
                             }

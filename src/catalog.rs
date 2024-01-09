@@ -9,7 +9,7 @@ use crate::{
     lock::LockManager,
     page::table_page::TABLE_PAGE_PAGE_TYPE,
     table::TableHeap,
-    value::{IntValue, Value, VarcharValue},
+    value::{UnsignedBigIntegerValue, UnsignedIntegerValue, Value, VarcharValue},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -29,16 +29,67 @@ pub struct Column {
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum DataType {
-    Int,
+    Integer,
+    UnsignedInteger,
+    BigInteger,
+    UnsignedBigInteger,
     Varchar,
     Boolean,
+}
+impl From<u32> for DataType {
+    fn from(data_type: u32) -> Self {
+        match data_type {
+            0 => Self::Integer,
+            1 => Self::UnsignedInteger,
+            2 => Self::BigInteger,
+            3 => Self::UnsignedBigInteger,
+            4 => Self::Varchar,
+            5 => Self::Boolean,
+            _ => unreachable!(),
+        }
+    }
+}
+impl From<DataType> for u32 {
+    fn from(data_type: DataType) -> Self {
+        match data_type {
+            DataType::Integer => 0,
+            DataType::UnsignedInteger => 1,
+            DataType::BigInteger => 2,
+            DataType::UnsignedBigInteger => 3,
+            DataType::Varchar => 4,
+            DataType::Boolean => 5,
+        }
+    }
+}
+impl DataType {
+    pub fn convert_with(&self, other: Self) -> Self {
+        match (&self, other) {
+            (DataType::Integer, DataType::UnsignedInteger) => DataType::UnsignedInteger,
+            (DataType::Integer, DataType::BigInteger) => DataType::BigInteger,
+            (DataType::Integer, DataType::UnsignedBigInteger) => DataType::UnsignedBigInteger,
+            (DataType::UnsignedInteger, DataType::Integer) => DataType::UnsignedInteger,
+            (DataType::UnsignedInteger, DataType::BigInteger) => DataType::BigInteger,
+            (DataType::UnsignedInteger, DataType::UnsignedBigInteger) => {
+                DataType::UnsignedBigInteger
+            }
+            (DataType::BigInteger, DataType::Integer) => DataType::BigInteger,
+            (DataType::BigInteger, DataType::UnsignedInteger) => DataType::BigInteger,
+            (DataType::BigInteger, DataType::UnsignedBigInteger) => DataType::UnsignedBigInteger,
+            (DataType::UnsignedBigInteger, DataType::Integer) => DataType::UnsignedBigInteger,
+            (DataType::UnsignedBigInteger, DataType::UnsignedInteger) => {
+                DataType::UnsignedBigInteger
+            }
+            (DataType::UnsignedBigInteger, DataType::BigInteger) => DataType::UnsignedBigInteger,
+            _ => unimplemented!(),
+        }
+    }
 }
 
 pub struct Catalog {
     buffer_pool_manager: Arc<Mutex<BufferPoolManager>>,
     transaction_manager: Arc<Mutex<TransactionManager>>,
     lock_manager: Arc<RwLock<LockManager>>,
-    next_table_id: u32,
+    next_table_id: u64,
 }
 
 impl Catalog {
@@ -111,13 +162,13 @@ impl Catalog {
             self.system_table_heap(PageID(SYSTEM_TABLES_FIRST_PAGE_ID.0), txn_id);
         let table_id = self.next_table_id;
         let values = vec![
-            Value::Int(IntValue(table_id as i32)),
+            Value::UnsignedBigInteger(UnsignedBigIntegerValue(table_id)),
             Value::Varchar(VarcharValue(name.to_string())),
-            Value::Int(IntValue(
+            Value::UnsignedBigInteger(UnsignedBigIntegerValue(
                 page.read()
                     .map_err(|_| anyhow::anyhow!("lock error"))?
                     .page_id()
-                    .0 as i32,
+                    .0,
             )),
         ];
         system_tables_table.insert(&values)?;
@@ -126,14 +177,10 @@ impl Catalog {
             self.system_table_heap(PageID(SYSTEM_COLUMNS_FIRST_PAGE_ID.0), txn_id);
         for (i, column) in schema.columns.iter().enumerate() {
             let values = vec![
-                Value::Int(IntValue(table_id as i32)),
+                Value::UnsignedBigInteger(UnsignedBigIntegerValue(table_id)),
                 Value::Varchar(VarcharValue(column.name.to_string())),
-                Value::Int(IntValue(i as i32)),
-                Value::Int(IntValue(match column.data_type {
-                    DataType::Int => 0,
-                    DataType::Varchar => 1,
-                    DataType::Boolean => 2,
-                })),
+                Value::UnsignedInteger(UnsignedIntegerValue(i as u32)),
+                Value::UnsignedInteger(UnsignedIntegerValue(column.data_type.clone().into())),
             ];
             system_columns_table.insert(&values)?;
         }
@@ -150,7 +197,9 @@ impl Catalog {
             let values = tuple.values(&Self::system_tables_schema());
             if let Value::Varchar(VarcharValue(name)) = &values[1] {
                 if name == table_name {
-                    if let Value::Int(IntValue(first_page_id)) = values[2] {
+                    if let Value::UnsignedBigInteger(UnsignedBigIntegerValue(first_page_id)) =
+                        values[2]
+                    {
                         return Ok(PageID(first_page_id as u64));
                     }
                 }
@@ -169,19 +218,14 @@ impl Catalog {
             self.system_table_heap(PageID(SYSTEM_COLUMNS_FIRST_PAGE_ID.0), txn_id);
         for tuple in system_columns_table.iter() {
             let values = tuple.values(&Self::system_columns_schema());
-            if let Value::Int(IntValue(table_id_)) = values[0] {
-                if table_id_ == table_id as i32 {
+            if let Value::UnsignedBigInteger(UnsignedBigIntegerValue(table_id_)) = values[0] {
+                if table_id_ == table_id {
                     if let Value::Varchar(VarcharValue(name)) = &values[1] {
                         // if let Value::Int(IntValue(ordinal_position)) = values[2] {
-                        if let Value::Int(IntValue(data_type)) = values[3] {
+                        if let Value::UnsignedInteger(UnsignedIntegerValue(data_type)) = values[3] {
                             schema.columns.push(Column {
                                 name: name.to_string(),
-                                data_type: match data_type {
-                                    0 => DataType::Int,
-                                    1 => DataType::Varchar,
-                                    2 => DataType::Boolean,
-                                    _ => unreachable!(),
-                                },
+                                data_type: data_type.into(),
                             });
                         }
                         // }
@@ -221,9 +265,9 @@ impl Catalog {
             self.system_table_heap(PageID(SYSTEM_TABLES_FIRST_PAGE_ID.0), txn_id);
         let table_id = self.next_table_id;
         let values = vec![
-            Value::Int(IntValue(table_id as i32)),
+            Value::UnsignedBigInteger(UnsignedBigIntegerValue(table_id)),
             Value::Varchar(VarcharValue(name.to_string())),
-            Value::Int(IntValue(first_page_id.0 as i32)),
+            Value::UnsignedBigInteger(UnsignedBigIntegerValue(first_page_id.0)),
         ];
         system_tables_table.insert(&values)?;
         self.next_table_id += 1;
@@ -231,13 +275,16 @@ impl Catalog {
             self.system_table_heap(PageID(SYSTEM_COLUMNS_FIRST_PAGE_ID.0), txn_id);
         for (i, column) in schema.columns.iter().enumerate() {
             let values = vec![
-                Value::Int(IntValue(table_id as i32)),
+                Value::UnsignedBigInteger(UnsignedBigIntegerValue(table_id)),
                 Value::Varchar(VarcharValue(column.name.to_string())),
-                Value::Int(IntValue(i as i32)),
-                Value::Int(IntValue(match column.data_type {
-                    DataType::Int => 0,
-                    DataType::Varchar => 1,
-                    DataType::Boolean => 2,
+                Value::UnsignedInteger(UnsignedIntegerValue(i as u32)),
+                Value::UnsignedInteger(UnsignedIntegerValue(match column.data_type {
+                    DataType::Integer => 0,
+                    DataType::UnsignedInteger => 1,
+                    DataType::BigInteger => 2,
+                    DataType::UnsignedBigInteger => 3,
+                    DataType::Varchar => 4,
+                    DataType::Boolean => 5,
                 })),
             ];
             system_columns_table.insert(&values)?;
@@ -264,28 +311,29 @@ impl Catalog {
             self.system_table_heap(PageID(SYSTEM_TABLES_FIRST_PAGE_ID.0), txn_id);
         for tuple in system_tables_table.iter() {
             let values = tuple.values(&Self::system_tables_schema());
-            if let Value::Int(IntValue(table_id)) = values[0] {
+            if let Value::UnsignedBigInteger(UnsignedBigIntegerValue(table_id)) = values[0] {
                 if table_id > max_table_id {
                     max_table_id = table_id;
                 }
             }
         }
-        self.next_table_id = max_table_id as u32 + 1;
+        self.next_table_id = max_table_id + 1;
         self.transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
             .commit(txn_id)?;
         Ok(())
     }
-    fn get_table_id_by_table_name(&self, table_name: &str, txn_id: TransactionID) -> Result<u32> {
+    fn get_table_id_by_table_name(&self, table_name: &str, txn_id: TransactionID) -> Result<u64> {
         let system_tables_table =
             self.system_table_heap(PageID(SYSTEM_TABLES_FIRST_PAGE_ID.0), txn_id);
         for tuple in system_tables_table.iter() {
             let values = tuple.values(&Self::system_tables_schema());
             if let Value::Varchar(VarcharValue(name)) = &values[1] {
                 if name == table_name {
-                    if let Value::Int(IntValue(table_id)) = values[0] {
-                        return Ok(table_id as u32);
+                    if let Value::UnsignedBigInteger(UnsignedBigIntegerValue(table_id)) = values[0]
+                    {
+                        return Ok(table_id);
                     }
                 }
             }
@@ -298,7 +346,7 @@ impl Catalog {
             columns: vec![
                 Column {
                     name: "id".to_string(),
-                    data_type: DataType::Int,
+                    data_type: DataType::UnsignedBigInteger,
                 },
                 Column {
                     name: "name".to_string(),
@@ -306,7 +354,7 @@ impl Catalog {
                 },
                 Column {
                     name: "first_page_id".to_string(),
-                    data_type: DataType::Int,
+                    data_type: DataType::UnsignedBigInteger,
                 },
             ],
         }
@@ -316,7 +364,7 @@ impl Catalog {
             columns: vec![
                 Column {
                     name: "table_id".to_string(),
-                    data_type: DataType::Int,
+                    data_type: DataType::UnsignedBigInteger,
                 },
                 Column {
                     name: "name".to_string(),
@@ -324,11 +372,11 @@ impl Catalog {
                 },
                 Column {
                     name: "ordinal_position".to_string(),
-                    data_type: DataType::Int,
+                    data_type: DataType::UnsignedInteger,
                 },
                 Column {
                     name: "data_type".to_string(),
-                    data_type: DataType::Int,
+                    data_type: DataType::UnsignedInteger,
                 },
             ],
         }
@@ -354,7 +402,7 @@ mod tests {
         disk::DiskManager,
         lock::LockManager,
         table::TableHeap,
-        value::{IntValue, Value, VarcharValue},
+        value::{UnsignedBigIntegerValue, UnsignedIntegerValue, Value, VarcharValue},
     };
 
     #[test]
@@ -390,7 +438,7 @@ mod tests {
                 columns: vec![
                     Column {
                         name: "id".to_string(),
-                        data_type: DataType::Int,
+                        data_type: DataType::UnsignedBigInteger,
                     },
                     Column {
                         name: "name".to_string(),
@@ -398,7 +446,7 @@ mod tests {
                     },
                     Column {
                         name: "age".to_string(),
-                        data_type: DataType::Int,
+                        data_type: DataType::UnsignedInteger,
                     },
                 ],
             },
@@ -413,9 +461,9 @@ mod tests {
             txn_id,
         );
         let values = vec![
-            Value::Int(IntValue(1)),
+            Value::UnsignedBigInteger(UnsignedBigIntegerValue(1)),
             Value::Varchar(VarcharValue("name1".to_string())),
-            Value::Int(IntValue(10)),
+            Value::UnsignedInteger(UnsignedIntegerValue(10)),
         ];
         table_heap.insert(&values)?;
         transaction_manager
@@ -439,9 +487,12 @@ mod tests {
         );
         for tuple in table_heap.iter() {
             let values = tuple.values(&schema);
-            assert_eq!(values[0], Value::Int(IntValue(1)));
+            assert_eq!(
+                values[0],
+                Value::UnsignedBigInteger(UnsignedBigIntegerValue(1))
+            );
             assert_eq!(values[1], Value::Varchar(VarcharValue("name1".to_string())));
-            assert_eq!(values[2], Value::Int(IntValue(10)));
+            assert_eq!(values[2], Value::UnsignedInteger(UnsignedIntegerValue(10)));
         }
         transaction_manager
             .lock()
