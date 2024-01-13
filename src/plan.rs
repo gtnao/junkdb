@@ -1,8 +1,8 @@
 use crate::{
     binder::{
         BoundAssignmentAST, BoundBaseTableReferenceAST, BoundDeleteStatementAST,
-        BoundExpressionAST, BoundInsertStatementAST, BoundSelectElementAST,
-        BoundSelectStatementAST, BoundStatementAST, BoundTableReferenceAST,
+        BoundExpressionAST, BoundInsertStatementAST, BoundJoinTableReferenceAST,
+        BoundSelectElementAST, BoundSelectStatementAST, BoundStatementAST, BoundTableReferenceAST,
         BoundUpdateStatementAST,
     },
     catalog::{Column, DataType, Schema},
@@ -14,6 +14,7 @@ pub enum Plan {
     SeqScan(SeqScanPlan),
     Filter(FilterPlan),
     Project(ProjectPlan),
+    NestedLoopJoin(NestedLoopJoinPlan),
     Insert(InsertPlan),
     Delete(DeletePlan),
     Update(UpdatePlan),
@@ -24,6 +25,7 @@ impl Plan {
             Plan::SeqScan(plan) => &plan.schema,
             Plan::Filter(plan) => &plan.schema,
             Plan::Project(plan) => &plan.schema,
+            Plan::NestedLoopJoin(plan) => &plan.schema,
             Plan::Insert(plan) => &plan.schema,
             Plan::Delete(plan) => &plan.schema,
             Plan::Update(plan) => &plan.schema,
@@ -46,6 +48,13 @@ pub struct ProjectPlan {
     pub select_elements: Vec<BoundSelectElementAST>,
     pub schema: Schema,
     pub child: Box<Plan>,
+}
+#[derive(Debug, Clone)]
+pub struct NestedLoopJoinPlan {
+    pub schema: Schema,
+    pub outer_child: Box<Plan>,
+    pub inner_children: Vec<Box<Plan>>,
+    pub conditions: Vec<Option<BoundExpressionAST>>,
 }
 #[derive(Debug, Clone)]
 pub struct InsertPlan {
@@ -127,6 +136,7 @@ impl Planner {
             BoundTableReferenceAST::Base(table_reference) => {
                 self.plan_base_table_reference(table_reference)
             }
+            BoundTableReferenceAST::Join(join) => self.plan_join_table_reference(join),
         }
     }
     fn plan_base_table_reference(&self, table_reference: &BoundBaseTableReferenceAST) -> Plan {
@@ -134,6 +144,48 @@ impl Planner {
             first_page_id: table_reference.first_page_id,
             schema: table_reference.schema.clone(),
         })
+    }
+    fn plan_join_table_reference(&self, table_reference: &BoundJoinTableReferenceAST) -> Plan {
+        let mut conditions = vec![table_reference.condition.clone()];
+        let outer_child = self.plan_table_reference(&table_reference.left);
+        let inner_children =
+            self.recursive_plan_table_reference(&table_reference.right, &mut conditions);
+        let mut schema = Schema {
+            columns: outer_child.schema().columns.clone(),
+        };
+        for inner_child in &inner_children {
+            schema.columns.extend(inner_child.schema().columns.clone());
+        }
+        Plan::NestedLoopJoin(NestedLoopJoinPlan {
+            schema,
+            outer_child: Box::new(outer_child),
+            inner_children: inner_children
+                .into_iter()
+                .map(|plan| Box::new(plan))
+                .collect(),
+            conditions,
+        })
+    }
+    fn recursive_plan_table_reference(
+        &self,
+        table_reference: &BoundTableReferenceAST,
+        conditions: &mut Vec<Option<BoundExpressionAST>>,
+    ) -> Vec<Plan> {
+        match table_reference {
+            BoundTableReferenceAST::Base(table_reference) => {
+                vec![self.plan_base_table_reference(table_reference)]
+            }
+            BoundTableReferenceAST::Join(join) => {
+                conditions.push(join.condition.clone());
+                vec![
+                    self.recursive_plan_table_reference(&join.left, conditions),
+                    self.recursive_plan_table_reference(&join.right, conditions),
+                ]
+                .into_iter()
+                .flatten()
+                .collect()
+            }
+        }
     }
     fn plan_insert_statement(&self, insert_statement: &BoundInsertStatementAST) -> Plan {
         Plan::Insert(InsertPlan {

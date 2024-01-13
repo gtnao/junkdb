@@ -22,7 +22,11 @@ impl FilterExecutor<'_> {
     pub fn next(&mut self) -> Result<Option<Tuple>> {
         let mut tuple = self.child.next()?;
         while let Some(row) = tuple {
-            if self.plan.condition.eval(&row, &self.plan.child.schema())
+            let tuples = vec![&row];
+            if self
+                .plan
+                .condition
+                .eval(&tuples, &vec![&self.plan.child.schema()])
                 == Value::Boolean(BooleanValue(true))
             {
                 return Ok(Some(row));

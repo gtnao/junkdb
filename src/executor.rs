@@ -15,13 +15,15 @@ use crate::{
 
 use self::{
     delete_executor::DeleteExecutor, filter_executor::FilterExecutor,
-    insert_executor::InsertExecutor, project_executor::ProjectExecutor,
-    seq_scan_executor::SeqScanExecutor, update_executor::UpdateExecutor,
+    insert_executor::InsertExecutor, nested_loop_join_executor::NestedLoopJoinExecutor,
+    project_executor::ProjectExecutor, seq_scan_executor::SeqScanExecutor,
+    update_executor::UpdateExecutor,
 };
 
 mod delete_executor;
 mod filter_executor;
 mod insert_executor;
+mod nested_loop_join_executor;
 mod project_executor;
 mod seq_scan_executor;
 mod update_executor;
@@ -75,6 +77,21 @@ impl ExecutorEngine {
                 child: Box::new(self.create_executor(&plan.child)),
                 executor_context: &self.context,
             }),
+            Plan::NestedLoopJoin(plan) => {
+                let outer_child = self.create_executor(&plan.outer_child);
+                let inner_children = plan
+                    .inner_children
+                    .iter()
+                    .map(|child| Box::new(self.create_executor(child)))
+                    .collect::<Vec<_>>();
+                Executor::NestedLoopJoin(nested_loop_join_executor::NestedLoopJoinExecutor {
+                    plan: plan.clone(),
+                    outer_child: Box::new(outer_child),
+                    inner_children,
+                    tuples: vec![],
+                    executor_context: &self.context,
+                })
+            }
             Plan::Insert(plan) => Executor::Insert(InsertExecutor {
                 plan: plan.clone(),
                 executor_context: &self.context,
@@ -125,6 +142,7 @@ pub enum Executor<'a> {
     SeqScan(SeqScanExecutor<'a>),
     Filter(FilterExecutor<'a>),
     Project(ProjectExecutor<'a>),
+    NestedLoopJoin(NestedLoopJoinExecutor<'a>),
     Insert(InsertExecutor<'a>),
     Delete(DeleteExecutor<'a>),
     Update(UpdateExecutor<'a>),
@@ -135,6 +153,7 @@ impl Executor<'_> {
             Executor::SeqScan(executor) => executor.init(),
             Executor::Filter(executor) => executor.init(),
             Executor::Project(executor) => executor.init(),
+            Executor::NestedLoopJoin(executor) => executor.init(),
             Executor::Insert(executor) => executor.init(),
             Executor::Delete(executor) => executor.init(),
             Executor::Update(executor) => executor.init(),
@@ -145,6 +164,7 @@ impl Executor<'_> {
             Executor::SeqScan(executor) => executor.next(),
             Executor::Filter(executor) => executor.next(),
             Executor::Project(executor) => executor.next(),
+            Executor::NestedLoopJoin(executor) => executor.next(),
             Executor::Insert(executor) => executor.next(),
             Executor::Delete(executor) => executor.next(),
             Executor::Update(executor) => executor.next(),

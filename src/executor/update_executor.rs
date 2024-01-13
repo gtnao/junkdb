@@ -33,9 +33,11 @@ impl UpdateExecutor<'_> {
             })?;
             let rid = row.rid.ok_or_else(|| anyhow!("rid is None"))?;
             let mut new_values = row.values(self.plan.child.schema());
+            let tuples = vec![&row];
             for assignment in self.plan.assignments.iter() {
-                new_values[assignment.column_index] =
-                    assignment.value.eval(&row, self.plan.child.schema());
+                new_values[assignment.column_index] = assignment
+                    .value
+                    .eval(&tuples, &vec![&self.plan.child.schema()]);
             }
             table_heap.delete(rid)?;
             table_heap.insert(&new_values)?;

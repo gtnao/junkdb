@@ -18,11 +18,16 @@ impl ProjectExecutor<'_> {
     pub fn next(&mut self) -> Result<Option<Tuple>> {
         let tuple = self.child.next()?;
         if let Some(row) = tuple {
+            let tuples = vec![&row];
             let values = self
                 .plan
                 .select_elements
                 .iter()
-                .map(|element| element.expression.eval(&row, &self.plan.child.schema()))
+                .map(|element| {
+                    element
+                        .expression
+                        .eval(&tuples, &vec![&self.plan.child.schema()])
+                })
                 .collect::<Vec<Value>>();
             return Ok(Some(Tuple::temp_tuple(&values)));
         }

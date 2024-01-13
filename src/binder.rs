@@ -7,8 +7,8 @@ use crate::{
     common::{PageID, TransactionID},
     parser::{
         BaseTableReferenceAST, BinaryExpressionAST, BinaryOperator, DeleteStatementAST,
-        ExpressionAST, InsertStatementAST, LiteralExpressionAST, PathExpressionAST,
-        SelectStatementAST, StatementAST, TableReferenceAST, UpdateStatementAST,
+        ExpressionAST, InsertStatementAST, JoinTableReferenceAST, JoinType, LiteralExpressionAST,
+        PathExpressionAST, SelectStatementAST, StatementAST, TableReferenceAST, UpdateStatementAST,
     },
     tuple::Tuple,
     value::{BooleanValue, Value},
@@ -35,6 +35,7 @@ pub struct BoundSelectElementAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BoundTableReferenceAST {
     Base(BoundBaseTableReferenceAST),
+    Join(BoundJoinTableReferenceAST),
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundBaseTableReferenceAST {
@@ -42,6 +43,13 @@ pub struct BoundBaseTableReferenceAST {
     pub alias: Option<String>,
     pub first_page_id: PageID,
     pub schema: Schema,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BoundJoinTableReferenceAST {
+    pub left: Box<BoundTableReferenceAST>,
+    pub right: Box<BoundTableReferenceAST>,
+    pub condition: Option<BoundExpressionAST>,
+    pub join_type: JoinType,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundInsertStatementAST {
@@ -76,6 +84,7 @@ pub enum BoundExpressionAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundPathExpressionAST {
     pub path: Vec<String>,
+    pub table_index: usize,
     pub column_index: usize,
     pub data_type: DataType,
 }
@@ -91,13 +100,13 @@ pub struct BoundBinaryExpressionAST {
     pub right: Box<BoundExpressionAST>,
 }
 
-enum Scope {
-    Base(BoundBaseTableReferenceAST),
+struct Scope {
+    tables: Vec<BoundBaseTableReferenceAST>,
 }
 pub struct Binder {
     catalog: Arc<Mutex<Catalog>>,
     txn_id: TransactionID,
-    scope: Option<Scope>,
+    scopes: Vec<Scope>,
 }
 
 impl Binder {
@@ -105,7 +114,7 @@ impl Binder {
         Self {
             catalog,
             txn_id,
-            scope: None,
+            scopes: Vec::new(),
         }
     }
 
@@ -120,6 +129,7 @@ impl Binder {
     }
 
     fn bind_select(&mut self, statement: &SelectStatementAST) -> Result<BoundStatementAST> {
+        self.scopes.push(Scope { tables: Vec::new() });
         let table_reference = self.bind_table_reference(&statement.table_reference)?;
         let mut select_elements = Vec::new();
         let mut unknown_count = 0;
@@ -149,6 +159,7 @@ impl Binder {
             Some(condition) => Some(self.bind_expression(condition)?),
             None => None,
         };
+        self.scopes.pop();
         Ok(BoundStatementAST::Select(BoundSelectStatementAST {
             select_elements,
             table_reference,
@@ -163,6 +174,9 @@ impl Binder {
         match table_reference {
             TableReferenceAST::Base(table_reference) => Ok(BoundTableReferenceAST::Base(
                 self.bind_base_table_reference(table_reference)?,
+            )),
+            TableReferenceAST::Join(table_reference) => Ok(BoundTableReferenceAST::Join(
+                self.bind_join_table_reference(table_reference)?,
             )),
         }
     }
@@ -184,8 +198,31 @@ impl Binder {
             first_page_id,
             schema,
         };
-        self.scope = Some(Scope::Base(table_reference.clone()));
+        self.scopes
+            .last_mut()
+            .ok_or_else(|| anyhow::anyhow!("no scope"))?
+            .tables
+            .push(table_reference.clone());
         Ok(table_reference)
+    }
+
+    fn bind_join_table_reference(
+        &mut self,
+        table_reference: &JoinTableReferenceAST,
+    ) -> Result<BoundJoinTableReferenceAST> {
+        let left = Box::new(self.bind_table_reference(&table_reference.left)?);
+        let right = Box::new(self.bind_table_reference(&table_reference.right)?);
+        let condition: Option<BoundExpressionAST> = table_reference
+            .condition
+            .as_ref()
+            .map(|condition| self.bind_expression(condition))
+            .transpose()?;
+        Ok(BoundJoinTableReferenceAST {
+            left,
+            right,
+            condition,
+            join_type: table_reference.join_type.clone(),
+        })
     }
 
     fn bind_insert(&mut self, statement: &InsertStatementAST) -> Result<BoundStatementAST> {
@@ -235,7 +272,7 @@ impl Binder {
         let mut assignments = Vec::new();
         for assignment in &statement.assignments {
             let value = self.bind_expression(&assignment.value)?;
-            let (column_index, _) = self.resolve_path_expression(&PathExpressionAST {
+            let (_, column_index, _) = self.resolve_path_expression(&PathExpressionAST {
                 path: vec![assignment.column_name.clone()],
             })?;
             assignments.push(BoundAssignmentAST {
@@ -271,9 +308,10 @@ impl Binder {
         &mut self,
         expression: &PathExpressionAST,
     ) -> Result<BoundExpressionAST> {
-        let (column_index, data_type) = self.resolve_path_expression(expression)?;
+        let (table_index, column_index, data_type) = self.resolve_path_expression(expression)?;
         Ok(BoundExpressionAST::Path(BoundPathExpressionAST {
             path: expression.path.clone(),
+            table_index,
             column_index,
             data_type,
         }))
@@ -313,45 +351,58 @@ impl Binder {
     fn resolve_path_expression(
         &mut self,
         expression: &PathExpressionAST,
-    ) -> Result<(usize, DataType)> {
-        match &self.scope {
-            Some(Scope::Base(scope)) => {
-                self.resolve_path_expression_base(&scope.clone(), expression)
-            }
-            None => Err(anyhow::anyhow!("no scope")),
-        }
-    }
-
-    fn resolve_path_expression_base(
-        &mut self,
-        scope: &BoundBaseTableReferenceAST,
-        expression: &PathExpressionAST,
-    ) -> Result<(usize, DataType)> {
+    ) -> Result<(usize, usize, DataType)> {
+        let scope = self
+            .scopes
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("no scope"))?;
         if expression.path.len() == 1 {
-            for (i, column) in scope.schema.columns.iter().enumerate() {
-                if column.name == expression.path[0] {
-                    return Ok((i, column.data_type.clone()));
+            for (i, table) in scope.tables.iter().enumerate() {
+                for (j, column) in table.schema.columns.iter().enumerate() {
+                    if column.name == expression.path[0] {
+                        return Ok((i, j, column.data_type.clone()));
+                    }
                 }
             }
-            Err(anyhow::anyhow!(
-                "column {} not found in table {}",
-                expression.path[0],
-                scope.table_name
-            ))
+            Err(anyhow::anyhow!("column {} not found", expression.path[0]))
         } else if expression.path.len() == 2 {
-            let table_name = scope.alias.as_ref().unwrap_or(&scope.table_name);
-            if table_name != &expression.path[0] {
+            let table_names = scope
+                .tables
+                .iter()
+                .map(|table| {
+                    table
+                        .alias
+                        .as_ref()
+                        .unwrap_or(&table.table_name)
+                        .to_string()
+                })
+                .collect::<Vec<_>>();
+            let matched_table_indexes = table_names
+                .iter()
+                .enumerate()
+                .filter(|(_, table_name)| table_name == &&expression.path[0])
+                .map(|(i, _)| i)
+                .collect::<Vec<_>>();
+            if matched_table_indexes.len() == 0 {
                 return Err(anyhow::anyhow!("table {} not found", expression.path[0]));
             }
-            for (i, column) in scope.schema.columns.iter().enumerate() {
+            if matched_table_indexes.len() > 1 {
+                return Err(anyhow::anyhow!("ambiguous column {}", expression.path[0]));
+            }
+            for (i, column) in scope.tables[matched_table_indexes[0]]
+                .schema
+                .columns
+                .iter()
+                .enumerate()
+            {
                 if column.name == expression.path[1] {
-                    return Ok((i, column.data_type.clone()));
+                    return Ok((matched_table_indexes[0], i, column.data_type.clone()));
                 }
             }
             Err(anyhow::anyhow!(
-                "column {} not found in table {}",
-                expression.path[1],
-                scope.table_name
+                "column {}.{} not found in table",
+                expression.path[0],
+                expression.path[1]
             ))
         } else {
             Err(anyhow::anyhow!("path expression length must be 1 or 2"))
@@ -360,16 +411,17 @@ impl Binder {
 }
 
 impl BoundExpressionAST {
-    pub fn eval(&self, tuple: &Tuple, schema: &Schema) -> Value {
+    pub fn eval(&self, tuples: &Vec<&Tuple>, schemas: &Vec<&Schema>) -> Value {
         match self {
             BoundExpressionAST::Path(path_expression) => {
-                let values = tuple.values(schema);
+                let tuple = &tuples[path_expression.table_index];
+                let values = tuple.values(schemas[path_expression.table_index]);
                 values[path_expression.column_index].clone()
             }
             BoundExpressionAST::Literal(literal_expression) => literal_expression.value.clone(),
             BoundExpressionAST::Binary(binary_expression) => {
-                let left = binary_expression.left.eval(tuple, schema);
-                let right = binary_expression.right.eval(tuple, schema);
+                let left = binary_expression.left.eval(tuples, schemas);
+                let right = binary_expression.right.eval(tuples, schemas);
                 match binary_expression.operator {
                     BinaryOperator::Equal => Value::Boolean(BooleanValue(left.perform_eq(&right))),
                 }

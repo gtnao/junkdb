@@ -4,6 +4,7 @@ use crate::{
     value::Value,
 };
 
+#[derive(Debug, Clone)]
 pub struct Tuple {
     pub rid: Option<RID>,
     pub data: Box<[u8]>,
