@@ -20,6 +20,12 @@ pub enum Token {
     LeftParen,
     RightParen,
     Equal,
+    NotEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
+    Plus,
     Minus,
     EOF,
 }
@@ -41,6 +47,14 @@ pub enum Keyword {
     Left,
     Join,
     On,
+    Group,
+    By,
+    Having,
+    Order,
+    Asc,
+    Desc,
+    Limit,
+    Offset,
     Int,
     Integer,
     BigInt,
@@ -52,6 +66,10 @@ pub enum Keyword {
     Commit,
     Rollback,
     As,
+    And,
+    Or,
+    Not,
+    Is,
 }
 impl TryFrom<&str> for Keyword {
     type Error = anyhow::Error;
@@ -72,6 +90,14 @@ impl TryFrom<&str> for Keyword {
             "LEFT" => Ok(Keyword::Left),
             "JOIN" => Ok(Keyword::Join),
             "ON" => Ok(Keyword::On),
+            "GROUP" => Ok(Keyword::Group),
+            "BY" => Ok(Keyword::By),
+            "HAVING" => Ok(Keyword::Having),
+            "ORDER" => Ok(Keyword::Order),
+            "ASC" => Ok(Keyword::Asc),
+            "DESC" => Ok(Keyword::Desc),
+            "LIMIT" => Ok(Keyword::Limit),
+            "OFFSET" => Ok(Keyword::Offset),
             "INT" => Ok(Keyword::Int),
             "INTEGER" => Ok(Keyword::Integer),
             "BIGINT" => Ok(Keyword::BigInt),
@@ -82,6 +108,10 @@ impl TryFrom<&str> for Keyword {
             "BEGIN" => Ok(Keyword::Begin),
             "COMMIT" => Ok(Keyword::Commit),
             "ROLLBACK" => Ok(Keyword::Rollback),
+            "AND" => Ok(Keyword::And),
+            "OR" => Ok(Keyword::Or),
+            "NOT" => Ok(Keyword::Not),
+            "IS" => Ok(Keyword::Is),
             "AS" => Ok(Keyword::As),
             _ => Err(anyhow!("invalid keyword: {}", s)),
         }
@@ -119,7 +149,35 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                     }
                 }
             }
-            Some(c) if vec![',', '.', '(', ')', '*', ';', '='].contains(c) => {
+            Some(c) if *c == '<' => {
+                iter.next();
+                match iter.peek() {
+                    Some(cc) if *cc == '=' => {
+                        iter.next();
+                        tokens.push(Token::LessThanOrEqual);
+                    }
+                    Some(cc) if *cc == '>' => {
+                        iter.next();
+                        tokens.push(Token::NotEqual);
+                    }
+                    _ => {
+                        tokens.push(Token::LessThan);
+                    }
+                }
+            }
+            Some(c) if *c == '>' => {
+                iter.next();
+                match iter.peek() {
+                    Some(cc) if *cc == '=' => {
+                        iter.next();
+                        tokens.push(Token::GreaterThanOrEqual);
+                    }
+                    _ => {
+                        tokens.push(Token::GreaterThan);
+                    }
+                }
+            }
+            Some(c) if vec![',', '.', '(', ')', '*', ';', '=', '+'].contains(c) => {
                 tokens.push(match *c {
                     ',' => Token::Comma,
                     '.' => Token::Dot,
@@ -128,6 +186,7 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                     '*' => Token::Asterisk,
                     ';' => Token::Semicolon,
                     '=' => Token::Equal,
+                    '+' => Token::Plus,
                     _ => unreachable!(),
                 });
                 iter.next();
@@ -271,7 +330,12 @@ mod tests {
 
     #[test]
     fn test_all_keywords() -> Result<()> {
-        let text = "CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET SELECT INNER LEFT JOIN ON INT INTEGER BIGINT BIGINTEGER VARCHAR BOOLEAN BEGIN COMMIT ROLLBACK AS";
+        let text = r#"
+            CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET
+            SELECT INNER LEFT JOIN ON GROUP BY HAVING ORDER ASC
+            DESC LIMIT OFFSET INT INTEGER BIGINT BIGINTEGER VARCHAR BOOLEAN BEGIN
+            COMMIT ROLLBACK AND OR NOT IS AS
+        "#;
         let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
@@ -292,6 +356,14 @@ mod tests {
                 Token::Keyword(Keyword::Left),
                 Token::Keyword(Keyword::Join),
                 Token::Keyword(Keyword::On),
+                Token::Keyword(Keyword::Group),
+                Token::Keyword(Keyword::By),
+                Token::Keyword(Keyword::Having),
+                Token::Keyword(Keyword::Order),
+                Token::Keyword(Keyword::Asc),
+                Token::Keyword(Keyword::Desc),
+                Token::Keyword(Keyword::Limit),
+                Token::Keyword(Keyword::Offset),
                 Token::Keyword(Keyword::Int),
                 Token::Keyword(Keyword::Integer),
                 Token::Keyword(Keyword::BigInt),
@@ -301,6 +373,10 @@ mod tests {
                 Token::Keyword(Keyword::Begin),
                 Token::Keyword(Keyword::Commit),
                 Token::Keyword(Keyword::Rollback),
+                Token::Keyword(Keyword::And),
+                Token::Keyword(Keyword::Or),
+                Token::Keyword(Keyword::Not),
+                Token::Keyword(Keyword::Is),
                 Token::Keyword(Keyword::As),
                 Token::EOF,
             ]
@@ -310,7 +386,10 @@ mod tests {
 
     #[test]
     fn test_all_literals() -> Result<()> {
-        let text = "1 2345 -1 -2345 -3000000000 3000000000 5000000000 9223372036854775808 'a' 'b\\'c' true False NULL";
+        let text = r#"
+            1 2345 -1 -2345 -3000000000 3000000000 5000000000 9223372036854775808
+            'a' 'b\\'c' true False NULL
+        "#;
         let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
@@ -339,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_all_symbols() -> Result<()> {
-        let text = ", . ( ) * ; - =";
+        let text = ", . ( ) * ; - = + < > <= >= <>";
         let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
@@ -353,6 +432,12 @@ mod tests {
                 Token::Semicolon,
                 Token::Minus,
                 Token::Equal,
+                Token::Plus,
+                Token::LessThan,
+                Token::GreaterThan,
+                Token::LessThanOrEqual,
+                Token::GreaterThanOrEqual,
+                Token::NotEqual,
                 Token::EOF,
             ]
         );
