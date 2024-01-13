@@ -27,6 +27,8 @@ pub enum Token {
     LessThanOrEqual,
     Plus,
     Minus,
+    Slash,
+    Percent,
     EOF,
 }
 
@@ -108,11 +110,11 @@ impl TryFrom<&str> for Keyword {
             "BEGIN" => Ok(Keyword::Begin),
             "COMMIT" => Ok(Keyword::Commit),
             "ROLLBACK" => Ok(Keyword::Rollback),
+            "AS" => Ok(Keyword::As),
             "AND" => Ok(Keyword::And),
             "OR" => Ok(Keyword::Or),
             "NOT" => Ok(Keyword::Not),
             "IS" => Ok(Keyword::Is),
-            "AS" => Ok(Keyword::As),
             _ => Err(anyhow!("invalid keyword: {}", s)),
         }
     }
@@ -177,7 +179,7 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                     }
                 }
             }
-            Some(c) if vec![',', '.', '(', ')', '*', ';', '=', '+'].contains(c) => {
+            Some(c) if vec![',', '.', '(', ')', '*', ';', '=', '+', '/', '%'].contains(c) => {
                 tokens.push(match *c {
                     ',' => Token::Comma,
                     '.' => Token::Dot,
@@ -187,6 +189,8 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                     ';' => Token::Semicolon,
                     '=' => Token::Equal,
                     '+' => Token::Plus,
+                    '/' => Token::Slash,
+                    '%' => Token::Percent,
                     _ => unreachable!(),
                 });
                 iter.next();
@@ -334,7 +338,7 @@ mod tests {
             CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET
             SELECT INNER LEFT JOIN ON GROUP BY HAVING ORDER ASC
             DESC LIMIT OFFSET INT INTEGER BIGINT BIGINTEGER VARCHAR BOOLEAN BEGIN
-            COMMIT ROLLBACK AND OR NOT IS AS
+            COMMIT ROLLBACK AS AND OR NOT IS
         "#;
         let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
@@ -373,11 +377,11 @@ mod tests {
                 Token::Keyword(Keyword::Begin),
                 Token::Keyword(Keyword::Commit),
                 Token::Keyword(Keyword::Rollback),
+                Token::Keyword(Keyword::As),
                 Token::Keyword(Keyword::And),
                 Token::Keyword(Keyword::Or),
                 Token::Keyword(Keyword::Not),
                 Token::Keyword(Keyword::Is),
-                Token::Keyword(Keyword::As),
                 Token::EOF,
             ]
         );
@@ -388,7 +392,7 @@ mod tests {
     fn test_all_literals() -> Result<()> {
         let text = r#"
             1 2345 -1 -2345 -3000000000 3000000000 5000000000 9223372036854775808
-            'a' 'b\\'c' true False NULL
+            'a' 'b\'c' true False NULL
         "#;
         let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
@@ -418,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_all_symbols() -> Result<()> {
-        let text = ", . ( ) * ; - = + < > <= >= <>";
+        let text = ", . ( ) * ; - = + / % < > <= >= <>";
         let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
@@ -433,6 +437,8 @@ mod tests {
                 Token::Minus,
                 Token::Equal,
                 Token::Plus,
+                Token::Slash,
+                Token::Percent,
                 Token::LessThan,
                 Token::GreaterThan,
                 Token::LessThanOrEqual,

@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use crate::{
     catalog::DataType,
     lexer::{Keyword, Token},
-    value::Value,
+    value::{IntegerValue, Value},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -32,6 +32,10 @@ pub struct SelectStatementAST {
     pub select_elements: Vec<SelectElementAST>,
     pub table_reference: TableReferenceAST,
     pub condition: Option<ExpressionAST>,
+    pub group_by: Option<Vec<PathExpressionAST>>,
+    pub having: Option<ExpressionAST>,
+    pub order_by: Option<Vec<OrderByElementAST>>,
+    pub limit: Option<LimitAST>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SelectElementAST {
@@ -61,8 +65,24 @@ pub enum JoinType {
     Left,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub struct OrderByElementAST {
+    pub expression: PathExpressionAST,
+    pub order: Order,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Order {
+    Asc,
+    Desc,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct LimitAST {
+    pub count: ExpressionAST,
+    pub offset: ExpressionAST,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InsertStatementAST {
     pub table_name: String,
+    // TODO: support multiple rows
     pub values: Vec<ExpressionAST>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -78,14 +98,16 @@ pub struct UpdateStatementAST {
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AssignmentAST {
-    pub column_name: String,
+    pub target: PathExpressionAST,
     pub value: ExpressionAST,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExpressionAST {
     Path(PathExpressionAST),
     Literal(LiteralExpressionAST),
+    Unary(UnaryExpressionAST),
     Binary(BinaryExpressionAST),
+    FunctionCall(FunctionCallExpressionAST),
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PathExpressionAST {
@@ -96,6 +118,19 @@ pub struct LiteralExpressionAST {
     pub value: Value,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub struct UnaryExpressionAST {
+    pub operator: UnaryOperator,
+    pub operand: Box<ExpressionAST>,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum UnaryOperator {
+    Plus,
+    Minus,
+    Not,
+    IsNull,
+    IsNotNull,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BinaryExpressionAST {
     pub operator: BinaryOperator,
     pub left: Box<ExpressionAST>,
@@ -104,8 +139,26 @@ pub struct BinaryExpressionAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BinaryOperator {
     Equal,
+    NotEqual,
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
+    Plus,
+    Minus,
+    Asterisk,
+    Slash,
+    Percent,
+    And,
+    Or,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct FunctionCallExpressionAST {
+    pub function_name: String,
+    pub arguments: Vec<ExpressionAST>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Parser {
     pub tokens: Vec<Token>,
     pub position: usize,
@@ -161,10 +214,9 @@ impl Parser {
         let mut elements = Vec::new();
         loop {
             elements.push(self.table_element()?);
-            if self.consume_token(Token::Comma) {
-                continue;
+            if !self.consume_token(Token::Comma) {
+                break;
             }
-            break;
         }
         self.consume_token_or_error(Token::RightParen)?;
         Ok(CreateTableStatementAST {
@@ -233,10 +285,9 @@ impl Parser {
             let mut res = Vec::new();
             loop {
                 res.push(self.select_element()?);
-                if self.consume_token(Token::Comma) {
-                    continue;
+                if !self.consume_token(Token::Comma) {
+                    break;
                 }
-                break;
             }
             res
         };
@@ -247,10 +298,58 @@ impl Parser {
         } else {
             None
         };
+        let group_by = if self.consume_token(Token::Keyword(Keyword::Group)) {
+            self.consume_token_or_error(Token::Keyword(Keyword::By))?;
+            let mut group_by = Vec::new();
+            loop {
+                group_by.push(self.path_expression()?);
+                if !self.consume_token(Token::Comma) {
+                    break;
+                }
+            }
+            Some(group_by)
+        } else {
+            None
+        };
+        let having = if self.consume_token(Token::Keyword(Keyword::Having)) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+        let order_by = if self.consume_token(Token::Keyword(Keyword::Order)) {
+            self.consume_token_or_error(Token::Keyword(Keyword::By))?;
+            let mut elements = Vec::new();
+            loop {
+                elements.push(self.order_by_element()?);
+                if !self.consume_token(Token::Comma) {
+                    break;
+                }
+            }
+            Some(elements)
+        } else {
+            None
+        };
+        let limit = if self.consume_token(Token::Keyword(Keyword::Limit)) {
+            let count = self.expression()?;
+            let offset = if self.consume_token(Token::Keyword(Keyword::Offset)) {
+                self.expression()?
+            } else {
+                ExpressionAST::Literal(LiteralExpressionAST {
+                    value: Value::Integer(IntegerValue(0)),
+                })
+            };
+            Some(LimitAST { count, offset })
+        } else {
+            None
+        };
         Ok(SelectStatementAST {
             select_elements,
             table_reference,
             condition,
+            group_by,
+            having,
+            order_by,
+            limit,
         })
     }
     fn select_element(&mut self) -> Result<SelectElementAST> {
@@ -264,7 +363,7 @@ impl Parser {
     }
     fn table_reference(&mut self) -> Result<TableReferenceAST> {
         let left = TableReferenceAST::Base(self.base_table_reference()?);
-        Ok(self.recursive_table_reference(left)?)
+        Ok(self.recursive_visit_table_reference(left)?)
     }
     fn base_table_reference(&mut self) -> Result<BaseTableReferenceAST> {
         let table_name = self.identifier()?;
@@ -275,7 +374,10 @@ impl Parser {
         };
         Ok(BaseTableReferenceAST { table_name, alias })
     }
-    fn recursive_table_reference(&mut self, left: TableReferenceAST) -> Result<TableReferenceAST> {
+    fn recursive_visit_table_reference(
+        &mut self,
+        left: TableReferenceAST,
+    ) -> Result<TableReferenceAST> {
         if let Ok(join_type) = self.join_type() {
             let right = TableReferenceAST::Base(self.base_table_reference()?);
             let condition = if self.consume_token(Token::Keyword(Keyword::On)) {
@@ -285,7 +387,7 @@ impl Parser {
             };
             Ok(TableReferenceAST::Join(JoinTableReferenceAST {
                 left: Box::new(left),
-                right: Box::new(self.recursive_table_reference(right)?),
+                right: Box::new(self.recursive_visit_table_reference(right)?),
                 condition,
                 join_type,
             }))
@@ -306,6 +408,17 @@ impl Parser {
             Err(anyhow!("invalid join type"))
         }
     }
+    fn order_by_element(&mut self) -> Result<OrderByElementAST> {
+        let expression = self.path_expression()?;
+        let order = if self.consume_token(Token::Keyword(Keyword::Asc)) {
+            Order::Asc
+        } else if self.consume_token(Token::Keyword(Keyword::Desc)) {
+            Order::Desc
+        } else {
+            return Err(anyhow!("invalid order"));
+        };
+        Ok(OrderByElementAST { expression, order })
+    }
     fn insert_statement(&mut self) -> Result<InsertStatementAST> {
         self.consume_token_or_error(Token::Keyword(Keyword::Insert))?;
         self.consume_token_or_error(Token::Keyword(Keyword::Into))?;
@@ -315,10 +428,9 @@ impl Parser {
         let mut values = Vec::new();
         loop {
             values.push(self.expression()?);
-            if self.consume_token(Token::Comma) {
-                continue;
+            if !self.consume_token(Token::Comma) {
+                break;
             }
-            break;
         }
         self.consume_token_or_error(Token::RightParen)?;
         Ok(InsertStatementAST { table_name, values })
@@ -344,10 +456,9 @@ impl Parser {
         let mut assignments = Vec::new();
         loop {
             assignments.push(self.assignment()?);
-            if self.consume_token(Token::Comma) {
-                continue;
+            if !self.consume_token(Token::Comma) {
+                break;
             }
-            break;
         }
         let condition = if self.consume_token(Token::Keyword(Keyword::Where)) {
             Some(self.expression()?)
@@ -361,50 +472,141 @@ impl Parser {
         })
     }
     fn assignment(&mut self) -> Result<AssignmentAST> {
-        let column_name = self.identifier()?;
+        let target = self.path_expression()?;
         self.consume_token_or_error(Token::Equal)?;
         let value = self.expression()?;
-        Ok(AssignmentAST { column_name, value })
+        Ok(AssignmentAST { target, value })
     }
 
     fn expression(&mut self) -> Result<ExpressionAST> {
         self.logical_or_expression()
     }
     fn logical_or_expression(&mut self) -> Result<ExpressionAST> {
-        // TODO: implement
-        self.logical_and_expression()
+        let left = self.logical_and_expression()?;
+        if self.consume_token(Token::Keyword(Keyword::Or)) {
+            let right = self.logical_or_expression()?;
+            return Ok(ExpressionAST::Binary(BinaryExpressionAST {
+                operator: BinaryOperator::Or,
+                left: Box::new(left),
+                right: Box::new(right),
+            }));
+        }
+        Ok(left)
     }
     fn logical_and_expression(&mut self) -> Result<ExpressionAST> {
-        // TODO: implement
-        self.logical_not_expression()
+        let left = self.logical_not_expression()?;
+        if self.consume_token(Token::Keyword(Keyword::And)) {
+            let right = self.logical_and_expression()?;
+            return Ok(ExpressionAST::Binary(BinaryExpressionAST {
+                operator: BinaryOperator::And,
+                left: Box::new(left),
+                right: Box::new(right),
+            }));
+        }
+        Ok(left)
     }
     fn logical_not_expression(&mut self) -> Result<ExpressionAST> {
-        // TODO: implement
+        if self.consume_token(Token::Keyword(Keyword::Not)) {
+            let operand = self.comparison_expression()?;
+            return Ok(ExpressionAST::Unary(UnaryExpressionAST {
+                operator: UnaryOperator::Not,
+                operand: Box::new(operand),
+            }));
+        }
         self.comparison_expression()
     }
     fn comparison_expression(&mut self) -> Result<ExpressionAST> {
         let left = self.function_call_expression();
-        if self.consume_token(Token::Equal) {
-            let right = self.function_call_expression()?;
-            return Ok(ExpressionAST::Binary(BinaryExpressionAST {
-                operator: BinaryOperator::Equal,
-                left: Box::new(left?),
-                right: Box::new(right),
-            }));
-        }
-        left
+        let operator = if self.consume_token(Token::Equal) {
+            BinaryOperator::Equal
+        } else if self.consume_token(Token::NotEqual) {
+            BinaryOperator::NotEqual
+        } else if self.consume_token(Token::LessThan) {
+            BinaryOperator::LessThan
+        } else if self.consume_token(Token::LessThanOrEqual) {
+            BinaryOperator::LessThanOrEqual
+        } else if self.consume_token(Token::GreaterThan) {
+            BinaryOperator::GreaterThan
+        } else if self.consume_token(Token::GreaterThanOrEqual) {
+            BinaryOperator::GreaterThanOrEqual
+        } else if self.consume_token(Token::Keyword(Keyword::Is)) {
+            if self.consume_token(Token::Keyword(Keyword::Not))
+                && self.consume_token(Token::Literal(Value::Null))
+            {
+                return Ok(ExpressionAST::Unary(UnaryExpressionAST {
+                    operator: UnaryOperator::IsNotNull,
+                    operand: Box::new(left?),
+                }));
+            } else if self.consume_token(Token::Literal(Value::Null)) {
+                return Ok(ExpressionAST::Unary(UnaryExpressionAST {
+                    operator: UnaryOperator::IsNull,
+                    operand: Box::new(left?),
+                }));
+            } else {
+                return Err(anyhow!("invalid expression"));
+            }
+        } else {
+            return Ok(left?);
+        };
+        let right = self.function_call_expression()?;
+        Ok(ExpressionAST::Binary(BinaryExpressionAST {
+            operator,
+            left: Box::new(left?),
+            right: Box::new(right),
+        }))
     }
     fn function_call_expression(&mut self) -> Result<ExpressionAST> {
-        // TODO: implement
+        if self.match_identifier() && self.match_look_ahead(Token::LeftParen) {
+            let function_name = self.identifier()?;
+            self.consume_token_or_error(Token::LeftParen)?;
+            let mut arguments = Vec::new();
+            loop {
+                arguments.push(self.expression()?);
+                if !self.consume_token(Token::Comma) {
+                    break;
+                }
+            }
+            self.consume_token_or_error(Token::RightParen)?;
+            return Ok(ExpressionAST::FunctionCall(FunctionCallExpressionAST {
+                function_name,
+                arguments,
+            }));
+        }
         self.arithmetic_expression()
     }
     fn arithmetic_expression(&mut self) -> Result<ExpressionAST> {
-        // TODO: implement
-        self.term_expression()
+        let left = self.term_expression()?;
+        let operator = if self.consume_token(Token::Plus) {
+            BinaryOperator::Plus
+        } else if self.consume_token(Token::Minus) {
+            BinaryOperator::Minus
+        } else {
+            return Ok(left);
+        };
+        let right = self.term_expression()?;
+        Ok(ExpressionAST::Binary(BinaryExpressionAST {
+            operator,
+            left: Box::new(left),
+            right: Box::new(right),
+        }))
     }
     fn term_expression(&mut self) -> Result<ExpressionAST> {
-        // TODO: implement
-        self.factor_expression()
+        let left = self.factor_expression()?;
+        let operator = if self.consume_token(Token::Asterisk) {
+            BinaryOperator::Asterisk
+        } else if self.consume_token(Token::Slash) {
+            BinaryOperator::Slash
+        } else if self.consume_token(Token::Percent) {
+            BinaryOperator::Percent
+        } else {
+            return Ok(left);
+        };
+        let right = self.factor_expression()?;
+        Ok(ExpressionAST::Binary(BinaryExpressionAST {
+            operator,
+            left: Box::new(left),
+            right: Box::new(right),
+        }))
     }
     fn factor_expression(&mut self) -> Result<ExpressionAST> {
         match self.tokens[self.position] {
@@ -414,7 +616,23 @@ impl Parser {
             }
             Token::Identifier(_) => {
                 let path = self.path_expression()?;
-                Ok(ExpressionAST::Path(PathExpressionAST { path }))
+                Ok(ExpressionAST::Path(path))
+            }
+            Token::Plus => {
+                self.consume_token_or_error(Token::Plus)?;
+                let operand = self.factor_expression()?;
+                Ok(ExpressionAST::Unary(UnaryExpressionAST {
+                    operator: UnaryOperator::Plus,
+                    operand: Box::new(operand),
+                }))
+            }
+            Token::Minus => {
+                self.consume_token_or_error(Token::Minus)?;
+                let operand = self.factor_expression()?;
+                Ok(ExpressionAST::Unary(UnaryExpressionAST {
+                    operator: UnaryOperator::Minus,
+                    operand: Box::new(operand),
+                }))
             }
             Token::LeftParen => {
                 self.consume_token_or_error(Token::LeftParen)?;
@@ -425,13 +643,13 @@ impl Parser {
             _ => Err(anyhow!("invalid expression")),
         }
     }
-    fn path_expression(&mut self) -> Result<Vec<String>> {
+    fn path_expression(&mut self) -> Result<PathExpressionAST> {
         let mut path = Vec::new();
         path.push(self.identifier()?);
         while self.consume_token(Token::Dot) {
             path.push(self.identifier()?);
         }
-        Ok(path)
+        Ok(PathExpressionAST { path })
     }
 
     fn identifier(&mut self) -> Result<String> {
@@ -456,6 +674,12 @@ impl Parser {
     }
     fn match_look_ahead(&mut self, token: Token) -> bool {
         self.tokens[self.position + 1] == token
+    }
+    fn match_identifier(&mut self) -> bool {
+        match self.tokens[self.position] {
+            Token::Identifier(_) => true,
+            _ => false,
+        }
     }
     fn consume_token(&mut self, token: Token) -> bool {
         if self.match_token(token) {
@@ -487,7 +711,20 @@ mod tests {
 
     #[test]
     fn test_parse_create_table() -> Result<()> {
-        let sql = "CREATE TABLE users (c0 INT, c1 INT UNSIGNED, c2 INTEGER, c3 INTEGER UNSIGNED, c4 BIGINT, c5 BIGINT UNSIGNED, c6 BIGINTEGER, c7 BIGINTEGER UNSIGNED, c8 VARCHAR, c9 BOOLEAN)";
+        let sql = r#"
+            CREATE TABLE users (
+                c0 INT,
+                c1 INT UNSIGNED,
+                c2 INTEGER,
+                c3 INTEGER UNSIGNED,
+                c4 BIGINT,
+                c5 BIGINT UNSIGNED,
+                c6 BIGINTEGER,
+                c7 BIGINTEGER UNSIGNED,
+                c8 VARCHAR,
+                c9 BOOLEAN
+            );
+        "#;
         let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
 
         let statement = parser.parse()?;
@@ -544,7 +781,16 @@ mod tests {
 
     #[test]
     fn test_parse_select() -> Result<()> {
-        let sql = "SELECT id AS user_id, u.name FROM users AS u WHERE id = 1";
+        let sql = r#"
+            SELECT
+              id AS user_id,
+              u.name,
+              'hoge'
+            FROM users AS u
+            WHERE id = 1
+            ORDER BY id DESC, name ASC
+            LIMIT 10 OFFSET 5;
+        "#;
         let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
 
         let statement = parser.parse()?;
@@ -564,6 +810,12 @@ mod tests {
                         }),
                         alias: None,
                     },
+                    SelectElementAST {
+                        expression: ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Varchar(VarcharValue(String::from("hoge"))),
+                        }),
+                        alias: None,
+                    },
                 ],
                 table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
                     table_name: String::from("users"),
@@ -578,6 +830,30 @@ mod tests {
                         value: Value::Integer(IntegerValue(1)),
                     })),
                 })),
+                group_by: None,
+                having: None,
+                order_by: Some(vec![
+                    OrderByElementAST {
+                        expression: PathExpressionAST {
+                            path: vec![String::from("id")],
+                        },
+                        order: Order::Desc,
+                    },
+                    OrderByElementAST {
+                        expression: PathExpressionAST {
+                            path: vec![String::from("name")],
+                        },
+                        order: Order::Asc,
+                    },
+                ]),
+                limit: Some(LimitAST {
+                    count: ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Integer(IntegerValue(10)),
+                    }),
+                    offset: ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Integer(IntegerValue(5)),
+                    }),
+                }),
             })
         );
         Ok(())
@@ -598,6 +874,54 @@ mod tests {
                     alias: None,
                 }),
                 condition: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_select_group_by() -> Result<()> {
+        let sql = "SELECT id FROM users GROUP BY id, name HAVING id = 1";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        assert_eq!(
+            statement,
+            StatementAST::Select(SelectStatementAST {
+                select_elements: vec![SelectElementAST {
+                    expression: ExpressionAST::Path(PathExpressionAST {
+                        path: vec![String::from("id")],
+                    }),
+                    alias: None,
+                }],
+                table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
+                    table_name: String::from("users"),
+                    alias: None,
+                }),
+                condition: None,
+                group_by: Some(vec![
+                    PathExpressionAST {
+                        path: vec![String::from("id")],
+                    },
+                    PathExpressionAST {
+                        path: vec![String::from("name")],
+                    },
+                ]),
+                having: Some(ExpressionAST::Binary(BinaryExpressionAST {
+                    operator: BinaryOperator::Equal,
+                    left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                        path: vec![String::from("id")],
+                    })),
+                    right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Integer(IntegerValue(1)),
+                    })),
+                })),
+                order_by: None,
+                limit: None,
             })
         );
         Ok(())
@@ -658,7 +982,7 @@ mod tests {
 
     #[test]
     fn test_parse_update() -> Result<()> {
-        let sql = "UPDATE users SET name = 'foo', age = 30 WHERE id = 1";
+        let sql = "UPDATE users SET name = 'foo', users.age = 30 WHERE id = 1";
         let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
 
         let statement = parser.parse()?;
@@ -671,13 +995,17 @@ mod tests {
                 },
                 assignments: vec![
                     AssignmentAST {
-                        column_name: String::from("name"),
+                        target: PathExpressionAST {
+                            path: vec![String::from("name")],
+                        },
                         value: ExpressionAST::Literal(LiteralExpressionAST {
                             value: Value::Varchar(VarcharValue(String::from("foo"))),
                         }),
                     },
                     AssignmentAST {
-                        column_name: String::from("age"),
+                        target: PathExpressionAST {
+                            path: vec![String::from("users"), String::from("age")],
+                        },
                         value: ExpressionAST::Literal(LiteralExpressionAST {
                             value: Value::Integer(IntegerValue(30)),
                         }),
@@ -709,7 +1037,6 @@ mod tests {
         let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
 
         let statement = parser.parse()?;
-        println!("{:#?}", statement);
         assert_eq!(
             statement,
             StatementAST::Select(SelectStatementAST {
@@ -767,8 +1094,298 @@ mod tests {
                     join_type: JoinType::Inner,
                 }),
                 condition: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_expression() -> Result<()> {
+        let sql = r#"
+            SELECT
+              age + 1,
+              age - 1,
+              age * 1,
+              age / 1,
+              age % 1,
+              age = 1,
+              age <> 1,
+              age < 1,
+              age <= 1,
+              age > 1,
+              age >= 1,
+              is_deleted AND True,
+              is_deleted OR True,
+              NOT is_deleted,
+              +age,
+              -age,
+              COUNT(id),
+              foo.bar,
+              1,
+              'foo',
+              true,
+              NULL,
+              (age),
+              name IS NULL,
+              name IS NOT NULL
+            FROM users;
+        "#;
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        match statement {
+            StatementAST::Select(select_statement) => {
+                assert_eq!(
+                    select_statement.select_elements[0].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Plus,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[1].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Minus,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[2].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Asterisk,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[3].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Slash,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[4].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Percent,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[5].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Equal,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[6].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::NotEqual,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[7].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::LessThan,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[8].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::LessThanOrEqual,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[9].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::GreaterThan,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[10].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::GreaterThanOrEqual,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[11].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::And,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("is_deleted")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Boolean(BooleanValue(true)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[12].expression,
+                    ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Or,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("is_deleted")],
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Boolean(BooleanValue(true)),
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[13].expression,
+                    ExpressionAST::Unary(UnaryExpressionAST {
+                        operator: UnaryOperator::Not,
+                        operand: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("is_deleted")],
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[14].expression,
+                    ExpressionAST::Unary(UnaryExpressionAST {
+                        operator: UnaryOperator::Plus,
+                        operand: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[15].expression,
+                    ExpressionAST::Unary(UnaryExpressionAST {
+                        operator: UnaryOperator::Minus,
+                        operand: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("age")],
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[16].expression,
+                    ExpressionAST::FunctionCall(FunctionCallExpressionAST {
+                        function_name: String::from("COUNT"),
+                        arguments: vec![ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("id")],
+                        })],
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[17].expression,
+                    ExpressionAST::Path(PathExpressionAST {
+                        path: vec![String::from("foo"), String::from("bar")],
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[18].expression,
+                    ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Integer(IntegerValue(1)),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[19].expression,
+                    ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Varchar(VarcharValue(String::from("foo"))),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[20].expression,
+                    ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Boolean(BooleanValue(true)),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[21].expression,
+                    ExpressionAST::Literal(LiteralExpressionAST { value: Value::Null })
+                );
+                assert_eq!(
+                    select_statement.select_elements[22].expression,
+                    ExpressionAST::Path(PathExpressionAST {
+                        path: vec![String::from("age")],
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[23].expression,
+                    ExpressionAST::Unary(UnaryExpressionAST {
+                        operator: UnaryOperator::IsNull,
+                        operand: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("name")],
+                        })),
+                    })
+                );
+                assert_eq!(
+                    select_statement.select_elements[24].expression,
+                    ExpressionAST::Unary(UnaryExpressionAST {
+                        operator: UnaryOperator::IsNotNull,
+                        operand: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("name")],
+                        })),
+                    })
+                );
+            }
+            _ => panic!("not select statement"),
+        }
         Ok(())
     }
 }

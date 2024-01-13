@@ -7,8 +7,9 @@ use crate::{
     common::{PageID, TransactionID},
     parser::{
         BaseTableReferenceAST, BinaryExpressionAST, BinaryOperator, DeleteStatementAST,
-        ExpressionAST, InsertStatementAST, JoinTableReferenceAST, JoinType, LiteralExpressionAST,
-        PathExpressionAST, SelectStatementAST, StatementAST, TableReferenceAST, UpdateStatementAST,
+        ExpressionAST, FunctionCallExpressionAST, InsertStatementAST, JoinTableReferenceAST,
+        JoinType, LiteralExpressionAST, PathExpressionAST, SelectStatementAST, StatementAST,
+        TableReferenceAST, UnaryExpressionAST, UnaryOperator, UpdateStatementAST,
     },
     tuple::Tuple,
     value::{BooleanValue, Value},
@@ -71,7 +72,7 @@ pub struct BoundUpdateStatementAST {
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundAssignmentAST {
-    pub column_name: String,
+    pub target: PathExpressionAST,
     pub value: BoundExpressionAST,
     pub column_index: usize,
 }
@@ -79,7 +80,9 @@ pub struct BoundAssignmentAST {
 pub enum BoundExpressionAST {
     Path(BoundPathExpressionAST),
     Literal(BoundLiteralExpressionAST),
+    Unary(BoundUnaryExpressionAST),
     Binary(BoundBinaryExpressionAST),
+    FunctionCall(BoundFunctionCallExpressionAST),
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundPathExpressionAST {
@@ -94,10 +97,20 @@ pub struct BoundLiteralExpressionAST {
     pub data_type: Option<DataType>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BoundUnaryExpressionAST {
+    pub operator: UnaryOperator,
+    pub operand: Box<BoundExpressionAST>,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundBinaryExpressionAST {
     pub operator: BinaryOperator,
     pub left: Box<BoundExpressionAST>,
     pub right: Box<BoundExpressionAST>,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BoundFunctionCallExpressionAST {
+    pub function_name: String,
+    pub arguments: Vec<BoundExpressionAST>,
 }
 
 struct Scope {
@@ -273,10 +286,10 @@ impl Binder {
         for assignment in &statement.assignments {
             let value = self.bind_expression(&assignment.value)?;
             let (_, column_index, _) = self.resolve_path_expression(&PathExpressionAST {
-                path: vec![assignment.column_name.clone()],
+                path: assignment.target.path.clone(),
             })?;
             assignments.push(BoundAssignmentAST {
-                column_name: assignment.column_name.clone(),
+                target: assignment.target.clone(),
                 value,
                 column_index,
             });
@@ -294,12 +307,12 @@ impl Binder {
 
     fn bind_expression(&mut self, expression: &ExpressionAST) -> Result<BoundExpressionAST> {
         match expression {
-            crate::parser::ExpressionAST::Path(expression) => self.bind_path_expression(expression),
-            crate::parser::ExpressionAST::Literal(expression) => {
-                self.bind_literal_expression(expression)
-            }
-            crate::parser::ExpressionAST::Binary(expression) => {
-                self.bind_binary_expression(expression)
+            ExpressionAST::Path(expression) => self.bind_path_expression(expression),
+            ExpressionAST::Literal(expression) => self.bind_literal_expression(expression),
+            ExpressionAST::Unary(expression) => self.bind_unary_expression(expression),
+            ExpressionAST::Binary(expression) => self.bind_binary_expression(expression),
+            ExpressionAST::FunctionCall(expression) => {
+                self.bind_function_call_expression(expression)
             }
         }
     }
@@ -335,6 +348,17 @@ impl Binder {
         }))
     }
 
+    fn bind_unary_expression(
+        &mut self,
+        expression: &UnaryExpressionAST,
+    ) -> Result<BoundExpressionAST> {
+        let operand = Box::new(self.bind_expression(&expression.operand)?);
+        Ok(BoundExpressionAST::Unary(BoundUnaryExpressionAST {
+            operator: expression.operator.clone(),
+            operand,
+        }))
+    }
+
     fn bind_binary_expression(
         &mut self,
         expression: &BinaryExpressionAST,
@@ -346,6 +370,22 @@ impl Binder {
             left,
             right,
         }))
+    }
+
+    fn bind_function_call_expression(
+        &mut self,
+        expression: &FunctionCallExpressionAST,
+    ) -> Result<BoundExpressionAST> {
+        let mut arguments = Vec::new();
+        for argument in &expression.arguments {
+            arguments.push(self.bind_expression(argument)?);
+        }
+        Ok(BoundExpressionAST::FunctionCall(
+            BoundFunctionCallExpressionAST {
+                function_name: expression.function_name.clone(),
+                arguments,
+            },
+        ))
     }
 
     fn resolve_path_expression(
@@ -419,13 +459,22 @@ impl BoundExpressionAST {
                 values[path_expression.column_index].clone()
             }
             BoundExpressionAST::Literal(literal_expression) => literal_expression.value.clone(),
+            BoundExpressionAST::Unary(unary_expression) => {
+                let operand = unary_expression.operand.eval(tuples, schemas);
+                // TODO:
+                unimplemented!()
+            }
             BoundExpressionAST::Binary(binary_expression) => {
                 let left = binary_expression.left.eval(tuples, schemas);
                 let right = binary_expression.right.eval(tuples, schemas);
                 match binary_expression.operator {
                     BinaryOperator::Equal => Value::Boolean(BooleanValue(left.perform_eq(&right))),
+                    // TODO: implement other operators
+                    _ => unimplemented!(),
                 }
             }
+            // TODO: function call
+            _ => unimplemented!(),
         }
     }
 
@@ -433,6 +482,7 @@ impl BoundExpressionAST {
         match self {
             BoundExpressionAST::Path(path_expression) => Some(path_expression.data_type.clone()),
             BoundExpressionAST::Literal(literal_expression) => literal_expression.data_type.clone(),
+            BoundExpressionAST::Unary(unary_expression) => unary_expression.operand.data_type(),
             BoundExpressionAST::Binary(binary_expression) => {
                 let left = binary_expression.left.data_type();
                 let right = binary_expression.right.data_type();
@@ -445,6 +495,8 @@ impl BoundExpressionAST {
                     Some(left.unwrap().convert_with(right.unwrap()))
                 }
             }
+            // TODO: function call
+            _ => unimplemented!(),
         }
     }
 }
