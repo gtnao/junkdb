@@ -41,11 +41,24 @@ pub struct SelectElementAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TableReferenceAST {
     Base(BaseTableReferenceAST),
+    Join(JoinTableReferenceAST),
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BaseTableReferenceAST {
     pub table_name: String,
     pub alias: Option<String>,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct JoinTableReferenceAST {
+    pub left: Box<TableReferenceAST>,
+    pub right: Box<TableReferenceAST>,
+    pub condition: Option<ExpressionAST>,
+    pub join_type: JoinType,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum JoinType {
+    Inner,
+    Left,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InsertStatementAST {
@@ -250,7 +263,8 @@ impl Parser {
         Ok(SelectElementAST { expression, alias })
     }
     fn table_reference(&mut self) -> Result<TableReferenceAST> {
-        Ok(TableReferenceAST::Base(self.base_table_reference()?))
+        let left = TableReferenceAST::Base(self.base_table_reference()?);
+        Ok(self.recursive_table_reference(left)?)
     }
     fn base_table_reference(&mut self) -> Result<BaseTableReferenceAST> {
         let table_name = self.identifier()?;
@@ -260,6 +274,37 @@ impl Parser {
             None
         };
         Ok(BaseTableReferenceAST { table_name, alias })
+    }
+    fn recursive_table_reference(&mut self, left: TableReferenceAST) -> Result<TableReferenceAST> {
+        if let Ok(join_type) = self.join_type() {
+            let right = TableReferenceAST::Base(self.base_table_reference()?);
+            let condition = if self.consume_token(Token::Keyword(Keyword::On)) {
+                Some(self.expression()?)
+            } else {
+                None
+            };
+            Ok(TableReferenceAST::Join(JoinTableReferenceAST {
+                left: Box::new(left),
+                right: Box::new(self.recursive_table_reference(right)?),
+                condition,
+                join_type,
+            }))
+        } else {
+            Ok(left)
+        }
+    }
+    fn join_type(&mut self) -> Result<JoinType> {
+        if self.consume_token(Token::Keyword(Keyword::Join)) {
+            Ok(JoinType::Inner)
+        } else if self.consume_token(Token::Keyword(Keyword::Inner)) {
+            self.consume_token_or_error(Token::Keyword(Keyword::Join))?;
+            Ok(JoinType::Inner)
+        } else if self.consume_token(Token::Keyword(Keyword::Left)) {
+            self.consume_token_or_error(Token::Keyword(Keyword::Join))?;
+            Ok(JoinType::Left)
+        } else {
+            Err(anyhow!("invalid join type"))
+        }
     }
     fn insert_statement(&mut self) -> Result<InsertStatementAST> {
         self.consume_token_or_error(Token::Keyword(Keyword::Insert))?;
@@ -647,6 +692,81 @@ mod tests {
                         value: Value::Integer(IntegerValue(1)),
                     })),
                 })),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_nested_join() -> Result<()> {
+        let sql = r#"
+            SELECT *
+            FROM t1
+            INNER JOIN t2 ON t1.id = t2.t1_id
+            JOIN t3 ON t2.id = t3.t2_id
+            LEFT JOIN t4 ON t3.id = t4.t3_id;
+        "#;
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        println!("{:#?}", statement);
+        assert_eq!(
+            statement,
+            StatementAST::Select(SelectStatementAST {
+                select_elements: vec![],
+                table_reference: TableReferenceAST::Join(JoinTableReferenceAST {
+                    left: Box::new(TableReferenceAST::Base(BaseTableReferenceAST {
+                        table_name: String::from("t1"),
+                        alias: None,
+                    })),
+                    right: Box::new(TableReferenceAST::Join(JoinTableReferenceAST {
+                        left: Box::new(TableReferenceAST::Base(BaseTableReferenceAST {
+                            table_name: String::from("t2"),
+                            alias: None,
+                        })),
+                        right: Box::new(TableReferenceAST::Join(JoinTableReferenceAST {
+                            left: Box::new(TableReferenceAST::Base(BaseTableReferenceAST {
+                                table_name: String::from("t3"),
+                                alias: None,
+                            })),
+                            right: Box::new(TableReferenceAST::Base(BaseTableReferenceAST {
+                                table_name: String::from("t4"),
+                                alias: None,
+                            })),
+                            condition: Some(ExpressionAST::Binary(BinaryExpressionAST {
+                                operator: BinaryOperator::Equal,
+                                left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                                    path: vec![String::from("t3"), String::from("id")],
+                                })),
+                                right: Box::new(ExpressionAST::Path(PathExpressionAST {
+                                    path: vec![String::from("t4"), String::from("t3_id")],
+                                })),
+                            })),
+                            join_type: JoinType::Left,
+                        })),
+                        condition: Some(ExpressionAST::Binary(BinaryExpressionAST {
+                            operator: BinaryOperator::Equal,
+                            left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                                path: vec![String::from("t2"), String::from("id")],
+                            })),
+                            right: Box::new(ExpressionAST::Path(PathExpressionAST {
+                                path: vec![String::from("t3"), String::from("t2_id")],
+                            })),
+                        })),
+                        join_type: JoinType::Inner,
+                    })),
+                    condition: Some(ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Equal,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("t1"), String::from("id")],
+                        })),
+                        right: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("t2"), String::from("t1_id")],
+                        })),
+                    })),
+                    join_type: JoinType::Inner,
+                }),
+                condition: None,
             })
         );
         Ok(())

@@ -37,6 +37,10 @@ pub enum Keyword {
     Update,
     Set,
     Select,
+    Inner,
+    Left,
+    Join,
+    On,
     Int,
     Integer,
     BigInt,
@@ -64,6 +68,10 @@ impl TryFrom<&str> for Keyword {
             "UPDATE" => Ok(Keyword::Update),
             "SET" => Ok(Keyword::Set),
             "SELECT" => Ok(Keyword::Select),
+            "INNER" => Ok(Keyword::Inner),
+            "LEFT" => Ok(Keyword::Left),
+            "JOIN" => Ok(Keyword::Join),
+            "ON" => Ok(Keyword::On),
             "INT" => Ok(Keyword::Int),
             "INTEGER" => Ok(Keyword::Integer),
             "BIGINT" => Ok(Keyword::BigInt),
@@ -263,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_all_keywords() -> Result<()> {
-        let text = "CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET SELECT INT INTEGER BIGINT BIGINTEGER VARCHAR BOOLEAN BEGIN COMMIT ROLLBACK AS";
+        let text = "CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET SELECT INNER LEFT JOIN ON INT INTEGER BIGINT BIGINTEGER VARCHAR BOOLEAN BEGIN COMMIT ROLLBACK AS";
         let mut iter = text.chars().peekable();
         let tokens = tokenize(&mut iter)?;
         assert_eq!(
@@ -280,6 +288,10 @@ mod tests {
                 Token::Keyword(Keyword::Update),
                 Token::Keyword(Keyword::Set),
                 Token::Keyword(Keyword::Select),
+                Token::Keyword(Keyword::Inner),
+                Token::Keyword(Keyword::Left),
+                Token::Keyword(Keyword::Join),
+                Token::Keyword(Keyword::On),
                 Token::Keyword(Keyword::Int),
                 Token::Keyword(Keyword::Integer),
                 Token::Keyword(Keyword::BigInt),
