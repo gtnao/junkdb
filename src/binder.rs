@@ -191,6 +191,7 @@ impl Binder {
             TableReferenceAST::Join(table_reference) => Ok(BoundTableReferenceAST::Join(
                 self.bind_join_table_reference(table_reference)?,
             )),
+            TableReferenceAST::Subquery(_) => unimplemented!(),
         }
     }
 

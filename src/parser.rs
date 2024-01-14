@@ -46,6 +46,7 @@ pub struct SelectElementAST {
 pub enum TableReferenceAST {
     Base(BaseTableReferenceAST),
     Join(JoinTableReferenceAST),
+    Subquery(SubqueryTableReferenceAST),
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BaseTableReferenceAST {
@@ -63,6 +64,11 @@ pub struct JoinTableReferenceAST {
 pub enum JoinType {
     Inner,
     Left,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SubqueryTableReferenceAST {
+    pub select_statement: Box<SelectStatementAST>,
+    pub alias: String,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OrderByElementAST {
@@ -362,7 +368,11 @@ impl Parser {
         Ok(SelectElementAST { expression, alias })
     }
     fn table_reference(&mut self) -> Result<TableReferenceAST> {
-        let left = TableReferenceAST::Base(self.base_table_reference()?);
+        let left = if self.match_token(Token::LeftParen) {
+            TableReferenceAST::Subquery(self.subquery_table_reference()?)
+        } else {
+            TableReferenceAST::Base(self.base_table_reference()?)
+        };
         Ok(self.recursive_visit_table_reference(left)?)
     }
     fn base_table_reference(&mut self) -> Result<BaseTableReferenceAST> {
@@ -374,12 +384,27 @@ impl Parser {
         };
         Ok(BaseTableReferenceAST { table_name, alias })
     }
+    fn subquery_table_reference(&mut self) -> Result<SubqueryTableReferenceAST> {
+        self.consume_token_or_error(Token::LeftParen)?;
+        let select_statement = Box::new(self.select_statement()?);
+        self.consume_token_or_error(Token::RightParen)?;
+        self.consume_token_or_error(Token::Keyword(Keyword::As))?;
+        let alias = self.identifier()?;
+        Ok(SubqueryTableReferenceAST {
+            select_statement,
+            alias,
+        })
+    }
     fn recursive_visit_table_reference(
         &mut self,
         left: TableReferenceAST,
     ) -> Result<TableReferenceAST> {
         if let Ok(join_type) = self.join_type() {
-            let right = TableReferenceAST::Base(self.base_table_reference()?);
+            let right = if self.match_token(Token::LeftParen) {
+                TableReferenceAST::Subquery(self.subquery_table_reference()?)
+            } else {
+                TableReferenceAST::Base(self.base_table_reference()?)
+            };
             let condition = if self.consume_token(Token::Keyword(Keyword::On)) {
                 Some(self.expression()?)
             } else {
@@ -1089,6 +1114,78 @@ mod tests {
                         })),
                         right: Box::new(ExpressionAST::Path(PathExpressionAST {
                             path: vec![String::from("t2"), String::from("t1_id")],
+                        })),
+                    })),
+                    join_type: JoinType::Inner,
+                }),
+                condition: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parser_subquery() -> Result<()> {
+        let sql = r#"
+            SELECT *
+            FROM (
+              SELECT *
+              FROM accounts
+            ) AS a
+            INNER JOIN (
+              SELECT *
+              FROM users
+            ) AS u ON a.id = u.account_id;
+        "#;
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        assert_eq!(
+            statement,
+            StatementAST::Select(SelectStatementAST {
+                select_elements: vec![],
+                table_reference: TableReferenceAST::Join(JoinTableReferenceAST {
+                    left: Box::new(TableReferenceAST::Subquery(SubqueryTableReferenceAST {
+                        select_statement: Box::new(SelectStatementAST {
+                            select_elements: vec![],
+                            table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
+                                table_name: String::from("accounts"),
+                                alias: None,
+                            }),
+                            condition: None,
+                            group_by: None,
+                            having: None,
+                            order_by: None,
+                            limit: None,
+                        }),
+                        alias: String::from("a"),
+                    })),
+                    right: Box::new(TableReferenceAST::Subquery(SubqueryTableReferenceAST {
+                        select_statement: Box::new(SelectStatementAST {
+                            select_elements: vec![],
+                            table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
+                                table_name: String::from("users"),
+                                alias: None,
+                            }),
+                            condition: None,
+                            group_by: None,
+                            having: None,
+                            order_by: None,
+                            limit: None,
+                        }),
+                        alias: String::from("u"),
+                    })),
+                    condition: Some(ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Equal,
+                        left: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("a"), String::from("id")],
+                        })),
+                        right: Box::new(ExpressionAST::Path(PathExpressionAST {
+                            path: vec![String::from("u"), String::from("account_id")],
                         })),
                     })),
                     join_type: JoinType::Inner,
