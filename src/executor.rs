@@ -242,6 +242,16 @@ mod tests {
                 vec![Value::Boolean(BooleanValue(true))],
             ]
         );
+        let sql =
+            "SELECT __c1 FROM (SELECT _c1 AS __c1 FROM (SELECT c1 AS _c1 FROM t1) AS sub2) AS sub1";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+        assert_eq!(
+            rows,
+            vec![
+                vec![Value::Integer(IntegerValue(3))],
+                vec![Value::Integer(IntegerValue(1))],
+            ]
+        );
 
         Ok(())
     }
