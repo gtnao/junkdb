@@ -16,3 +16,6 @@ pub mod server;
 pub mod table;
 pub mod tuple;
 pub mod value;
+
+#[cfg(test)]
+pub mod test_helpers;

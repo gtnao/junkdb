@@ -269,6 +269,7 @@ impl Binder {
     }
 
     fn bind_delete(&mut self, statement: &DeleteStatementAST) -> Result<BoundStatementAST> {
+        self.scopes.push(Scope { tables: Vec::new() });
         let table_reference = self.bind_base_table_reference(&statement.table_reference)?;
         let condition = match &statement.condition {
             Some(condition) => Some(self.bind_expression(condition)?),
@@ -498,5 +499,65 @@ impl BoundExpressionAST {
             // TODO: function call
             _ => unimplemented!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        catalog::Column, lexer::tokenize, parser::Parser, test_helpers::setup_test_database,
+        value::IntegerValue,
+    };
+
+    use super::*;
+    use anyhow::Result;
+
+    #[test]
+    fn test_bind_delete() -> Result<()> {
+        let instance = setup_test_database()?;
+
+        let sql = "delete from t1 where c1 = 1";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+        let statement = parser.parse()?;
+
+        let txn_id = instance.begin(None)?;
+        let mut binder = Binder::new(instance.catalog, txn_id);
+        let bound_statement = binder.bind_statement(&statement)?;
+        assert_eq!(
+            bound_statement,
+            BoundStatementAST::Delete(BoundDeleteStatementAST {
+                table_reference: BoundBaseTableReferenceAST {
+                    table_name: "t1".to_string(),
+                    alias: None,
+                    first_page_id: PageID(3),
+                    schema: Schema {
+                        columns: vec![
+                            Column {
+                                name: "c1".to_string(),
+                                data_type: DataType::Integer,
+                            },
+                            Column {
+                                name: "c2".to_string(),
+                                data_type: DataType::Varchar,
+                            },
+                        ],
+                    },
+                },
+                condition: Some(BoundExpressionAST::Binary(BoundBinaryExpressionAST {
+                    operator: BinaryOperator::Equal,
+                    left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
+                        path: vec!["c1".to_string()],
+                        table_index: 0,
+                        column_index: 0,
+                        data_type: DataType::Integer,
+                    })),
+                    right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                        value: Value::Integer(IntegerValue(1)),
+                        data_type: Some(DataType::Integer),
+                    })),
+                })),
+            })
+        );
+        Ok(())
     }
 }
