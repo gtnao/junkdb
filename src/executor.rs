@@ -172,308 +172,67 @@ impl Executor<'_> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use std::sync::{Arc, Mutex, RwLock};
-//
-//     use anyhow::anyhow;
-//     use tempfile::tempdir;
-//
-//     use crate::{
-//         buffer::BufferPoolManager,
-//         catalog::{Catalog, Column, DataType, Schema},
-//         concurrency::{IsolationLevel, TransactionManager},
-//         disk::DiskManager,
-//         executor::{ExecutorContext, ExecutorEngine},
-//         lock::LockManager,
-//         plan::{InsertPlan, Plan},
-//         value::{IntValue, Value, VarcharValue},
-//     };
-//
-//     #[test]
-//     fn test_executor() -> anyhow::Result<()> {
-//         let dir = tempdir()?;
-//         let data_file_path = dir.path().join("data");
-//         let txn_log_file_path = dir.path().join("transaction.log");
-//         let disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
-//         let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(disk_manager, 10)));
-//         let lock_manager = Arc::new(RwLock::new(LockManager::default()));
-//         let transaction_manager = Arc::new(Mutex::new(TransactionManager::new(
-//             lock_manager.clone(),
-//             txn_log_file_path.to_str().unwrap(),
-//             IsolationLevel::RepeatableRead,
-//         )?));
-//         let catalog = Arc::new(Mutex::new(Catalog::new(
-//             buffer_pool_manager.clone(),
-//             transaction_manager.clone(),
-//             lock_manager.clone(),
-//         )));
-//
-//         // init
-//         catalog
-//             .lock()
-//             .map_err(|_| anyhow!("lock error"))?
-//             .bootstrap(true)?;
-//
-//         // create_table and insert
-//         {
-//             let txn_id = transaction_manager
-//                 .lock()
-//                 .map_err(|_| anyhow::anyhow!("lock error"))?
-//                 .begin();
-//             catalog
-//                 .lock()
-//                 .map_err(|_| anyhow!("lock error"))?
-//                 .create_table(
-//                     "test",
-//                     &Schema {
-//                         columns: vec![
-//                             Column {
-//                                 name: "id".to_string(),
-//                                 data_type: DataType::Int,
-//                             },
-//                             Column {
-//                                 name: "name".to_string(),
-//                                 data_type: DataType::Varchar,
-//                             },
-//                             Column {
-//                                 name: "age".to_string(),
-//                                 data_type: DataType::Int,
-//                             },
-//                         ],
-//                     },
-//                     txn_id,
-//                 )?;
-//             let executor_context = ExecutorContext {
-//                 transaction_id: txn_id,
-//                 buffer_pool_manager: buffer_pool_manager.clone(),
-//                 lock_manager: lock_manager.clone(),
-//                 transaction_manager: transaction_manager.clone(),
-//                 catalog: catalog.clone(),
-//             };
-//             let plan = Plan::Insert(InsertPlan {
-//                 table_name: "test".to_string(),
-//                 values: vec![
-//                     crate::plan::Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Int(IntValue(1)),
-//                     }),
-//                     crate::plan::Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Varchar(VarcharValue("name1".to_string())),
-//                     }),
-//                     crate::plan::Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Int(IntValue(10)),
-//                     }),
-//                 ],
-//                 schema: Schema { columns: vec![] },
-//             });
-//             let mut executor = ExecutorEngine::new(plan, executor_context);
-//             executor.execute()?;
-//             let executor_context = ExecutorContext {
-//                 transaction_id: txn_id,
-//                 buffer_pool_manager: buffer_pool_manager.clone(),
-//                 lock_manager: lock_manager.clone(),
-//                 transaction_manager: transaction_manager.clone(),
-//                 catalog: catalog.clone(),
-//             };
-//             let plan = Plan::Insert(InsertPlan {
-//                 table_name: "test".to_string(),
-//                 values: vec![
-//                     crate::plan::Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Int(IntValue(2)),
-//                     }),
-//                     crate::plan::Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Varchar(VarcharValue("name2".to_string())),
-//                     }),
-//                     crate::plan::Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Int(IntValue(20)),
-//                     }),
-//                 ],
-//                 schema: Schema { columns: vec![] },
-//             });
-//             let mut executor = ExecutorEngine::new(plan, executor_context);
-//             executor.execute()?;
-//             let executor_context = ExecutorContext {
-//                 transaction_id: txn_id,
-//                 buffer_pool_manager: buffer_pool_manager.clone(),
-//                 lock_manager: lock_manager.clone(),
-//                 transaction_manager: transaction_manager.clone(),
-//                 catalog: catalog.clone(),
-//             };
-//             let plan = Plan::Insert(InsertPlan {
-//                 table_name: "test".to_string(),
-//                 values: vec![
-//                     crate::plan::Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Int(IntValue(3)),
-//                     }),
-//                     crate::plan::Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Varchar(VarcharValue("name3".to_string())),
-//                     }),
-//                     crate::plan::Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Int(IntValue(30)),
-//                     }),
-//                 ],
-//                 schema: Schema { columns: vec![] },
-//             });
-//             let mut executor = ExecutorEngine::new(plan, executor_context);
-//             executor.execute()?;
-//             let schema = catalog
-//                 .lock()
-//                 .map_err(|_| anyhow!("lock error"))?
-//                 .get_schema_by_table_name("test", txn_id)?;
-//             let executor_context = ExecutorContext {
-//                 transaction_id: txn_id,
-//                 buffer_pool_manager: buffer_pool_manager.clone(),
-//                 lock_manager: lock_manager.clone(),
-//                 transaction_manager: transaction_manager.clone(),
-//                 catalog: catalog.clone(),
-//             };
-//             let plan = Plan::Delete(DeletePlan {
-//                 table_name: "test".to_string(),
-//                 schema: Schema { columns: vec![] },
-//                 child: Box::new(Plan::Filter(FilterPlan {
-//                     predicate: Expression::Binary(BinaryExpression {
-//                         operator: crate::plan::BinaryOperator::Equal,
-//                         left: Box::new(Expression::Path(PathExpression {
-//                             column_name: "id".to_string(),
-//                         })),
-//                         right: Box::new(Expression::Literal(LiteralExpression {
-//                             value: Value::Int(IntValue(1)),
-//                         })),
-//                     }),
-//                     schema: schema.clone(),
-//                     child: Box::new(Plan::SeqScan(SeqScanPlan {
-//                         table_name: "test".to_string(),
-//                         schema: schema.clone(),
-//                     })),
-//                 })),
-//             });
-//             let mut executor = ExecutorEngine::new(plan, executor_context);
-//             executor.execute()?;
-//             let executor_context = ExecutorContext {
-//                 transaction_id: txn_id,
-//                 buffer_pool_manager: buffer_pool_manager.clone(),
-//                 lock_manager: lock_manager.clone(),
-//                 transaction_manager: transaction_manager.clone(),
-//                 catalog: catalog.clone(),
-//             };
-//             let plan = Plan::Update(UpdatePlan {
-//                 table_name: "test".to_string(),
-//                 assignments: vec![Assignment {
-//                     column_index: 1,
-//                     expression: Expression::Literal(LiteralExpression {
-//                         value: Value::Varchar(VarcharValue("name2_updated".to_string())),
-//                     }),
-//                 }],
-//                 schema: Schema { columns: vec![] },
-//                 child: Box::new(Plan::Filter(FilterPlan {
-//                     predicate: Expression::Binary(BinaryExpression {
-//                         operator: crate::plan::BinaryOperator::Equal,
-//                         left: Box::new(Expression::Path(PathExpression {
-//                             column_name: "id".to_string(),
-//                         })),
-//                         right: Box::new(Expression::Literal(crate::plan::LiteralExpression {
-//                             value: Value::Int(IntValue(2)),
-//                         })),
-//                     }),
-//                     schema: schema.clone(),
-//                     child: Box::new(Plan::SeqScan(SeqScanPlan {
-//                         table_name: "test".to_string(),
-//                         schema: schema.clone(),
-//                     })),
-//                 })),
-//             });
-//             let mut executor = ExecutorEngine::new(plan, executor_context);
-//             executor.execute()?;
-//             transaction_manager
-//                 .lock()
-//                 .map_err(|_| anyhow::anyhow!("lock error"))?
-//                 .commit(txn_id)?;
-//         }
-//
-//         // select
-//         let txn_id = transaction_manager
-//             .lock()
-//             .map_err(|_| anyhow::anyhow!("lock error"))?
-//             .begin();
-//         let executor_context = ExecutorContext {
-//             transaction_id: txn_id,
-//             buffer_pool_manager: buffer_pool_manager.clone(),
-//             lock_manager: lock_manager.clone(),
-//             transaction_manager: transaction_manager.clone(),
-//             catalog: catalog.clone(),
-//         };
-//         let schema = catalog
-//             .lock()
-//             .map_err(|_| anyhow!("lock error"))?
-//             .get_schema_by_table_name("test", txn_id)?;
-//         let plan = Plan::Project(ProjectPlan {
-//             select_elements: vec![
-//                 crate::plan::SelectElement {
-//                     expression: Expression::Path(PathExpression {
-//                         column_name: "name".to_string(),
-//                     }),
-//                     alias: None,
-//                 },
-//                 crate::plan::SelectElement {
-//                     expression: Expression::Literal(LiteralExpression {
-//                         value: Value::Int(IntValue(9999)),
-//                     }),
-//                     alias: Some("literal_value".to_string()),
-//                 },
-//             ],
-//             schema: Schema {
-//                 columns: vec![
-//                     Column {
-//                         name: "name".to_string(),
-//                         data_type: DataType::Varchar,
-//                     },
-//                     Column {
-//                         name: "literal_value".to_string(),
-//                         data_type: DataType::Int,
-//                     },
-//                 ],
-//             },
-//             child: Box::new(Plan::Filter(FilterPlan {
-//                 predicate: Expression::Binary(BinaryExpression {
-//                     operator: crate::plan::BinaryOperator::Equal,
-//                     left: Box::new(Expression::Path(PathExpression {
-//                         column_name: "age".to_string(),
-//                     })),
-//                     right: Box::new(Expression::Literal(crate::plan::LiteralExpression {
-//                         value: Value::Int(IntValue(20)),
-//                     })),
-//                 }),
-//                 schema: schema.clone(),
-//                 child: Box::new(Plan::SeqScan(SeqScanPlan {
-//                     table_name: "test".to_string(),
-//                     schema: schema.clone(),
-//                 })),
-//             })),
-//         });
-//         let mut executor = ExecutorEngine::new(plan, executor_context);
-//         let tuples = executor.execute()?;
-//         assert_eq!(
-//             tuples,
-//             vec![vec![
-//                 Value::Varchar(VarcharValue("name2_updated".to_string())),
-//                 Value::Int(IntValue(9999)),
-//             ]]
-//         );
-//         let executor_context = ExecutorContext {
-//             transaction_id: txn_id,
-//             buffer_pool_manager: buffer_pool_manager.clone(),
-//             lock_manager: lock_manager.clone(),
-//             transaction_manager: transaction_manager.clone(),
-//             catalog: catalog.clone(),
-//         };
-//         let plan = Plan::SeqScan(SeqScanPlan {
-//             table_name: "test".to_string(),
-//             schema: schema.clone(),
-//         });
-//         let mut executor = ExecutorEngine::new(plan, executor_context);
-//         let tuples = executor.execute()?;
-//         assert_eq!(tuples.len(), 2);
-//
-//         Ok(())
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+
+    use crate::{
+        catalog::Schema,
+        common::TransactionID,
+        instance::Instance,
+        lexer::tokenize,
+        parser::Parser,
+        test_helpers::setup_test_database,
+        value::{IntegerValue, Value, VarcharValue},
+    };
+
+    fn execute(
+        sql: &str,
+        instance: &Instance,
+        txn_id: TransactionID,
+    ) -> Result<(Vec<Vec<Value>>, Schema)> {
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+        let statement = parser.parse()?;
+        instance.execute(&statement, txn_id)
+    }
+
+    #[test]
+    fn test_crud() -> Result<()> {
+        let instance = setup_test_database()?;
+        let txn_id = instance.begin(None)?;
+
+        let sql = "INSERT INTO t1 VALUES (1, 'foo')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t1 VALUES (2, 'bar')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t1 VALUES (3, 'baz')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "UPDATE t1 SET c2 = 'qux' WHERE c1 = 1";
+        execute(sql, &instance, txn_id)?;
+        let sql = "DELETE FROM t1 WHERE c1 = 2";
+        execute(sql, &instance, txn_id)?;
+
+        let sql = "SELECT * FROM t1";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+
+        assert_eq!(
+            rows,
+            vec![
+                vec![
+                    Value::Integer(IntegerValue(3)),
+                    Value::Varchar(VarcharValue("baz".to_string()))
+                ],
+                vec![
+                    Value::Integer(IntegerValue(1)),
+                    Value::Varchar(VarcharValue("qux".to_string()))
+                ],
+            ]
+        );
+
+        let sql = "SELECT * FROM t1 WHERE c2 = 'qux'";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+        assert_eq!(rows.len(), 1);
+
+        Ok(())
+    }
+}
