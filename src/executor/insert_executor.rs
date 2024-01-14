@@ -1,28 +1,26 @@
 use anyhow::Result;
 
-use crate::{catalog::Schema, plan::InsertPlan, table::TableHeap, tuple::Tuple};
+use crate::{
+    catalog::Schema,
+    common::INVALID_TRANSACTION_ID,
+    plan::InsertPlan,
+    table::TableHeap,
+    tuple::Tuple,
+    value::{UnsignedBigIntegerValue, Value},
+};
 
 use super::ExecutorContext;
 
 pub struct InsertExecutor<'a> {
     pub plan: InsertPlan,
     pub executor_context: &'a ExecutorContext,
-    pub count: usize,
+    pub table_heap: TableHeap,
+    pub count: u64,
+    pub executed: bool,
 }
 
 impl InsertExecutor<'_> {
     pub fn init(&mut self) -> Result<()> {
-        Ok(())
-    }
-    pub fn next(&mut self) -> Result<Option<Tuple>> {
-        let txn_id = self.executor_context.transaction_id;
-        let mut table_heap = TableHeap::new(
-            self.plan.first_page_id,
-            self.executor_context.buffer_pool_manager.clone(),
-            self.executor_context.transaction_manager.clone(),
-            self.executor_context.lock_manager.clone(),
-            txn_id,
-        );
         let values = self
             .plan
             .table_schema
@@ -37,8 +35,19 @@ impl InsertExecutor<'_> {
                 raw_value.convert_to(&c.data_type)
             })
             .collect::<Result<Vec<_>>>()?;
-        table_heap.insert(&values)?;
+        self.table_heap.insert(&values)?;
         self.count += 1;
-        Ok(None)
+        Ok(())
+    }
+    pub fn next(&mut self) -> Result<Option<Tuple>> {
+        if self.executed {
+            return Ok(None);
+        }
+        let values = vec![Value::UnsignedBigInteger(UnsignedBigIntegerValue(
+            self.count,
+        ))];
+        let bytes = Tuple::serialize(INVALID_TRANSACTION_ID, INVALID_TRANSACTION_ID, &values);
+        self.executed = true;
+        Ok(Some(Tuple::new(None, &bytes)))
     }
 }

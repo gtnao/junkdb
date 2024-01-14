@@ -3,15 +3,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use anyhow::Result;
 
 use crate::{
-    buffer::BufferPoolManager,
-    catalog::Catalog,
-    common::TransactionID,
-    concurrency::TransactionManager,
-    lock::LockManager,
-    plan::Plan,
-    table::TableHeap,
-    tuple::Tuple,
-    value::{UnsignedBigIntegerValue, Value},
+    buffer::BufferPoolManager, catalog::Catalog, common::TransactionID,
+    concurrency::TransactionManager, lock::LockManager, plan::Plan, table::TableHeap, tuple::Tuple,
+    value::Value,
 };
 
 use self::{
@@ -51,13 +45,8 @@ impl ExecutorEngine {
         let mut tuple = executor.next()?;
         let mut result = vec![];
         while let Some(t) = &tuple {
-            if !self.is_count_supported(&self.plan) {
-                result.push(t.values(&self.plan.schema()));
-            }
+            result.push(t.values(&self.plan.schema()));
             tuple = executor.next()?;
-        }
-        if let Some(count_result) = self.count_result(&executor) {
-            return Ok(count_result);
         }
         Ok(result)
     }
@@ -103,7 +92,15 @@ impl ExecutorEngine {
             Plan::Insert(plan) => Executor::Insert(InsertExecutor {
                 plan: plan.clone(),
                 executor_context: &self.context,
+                table_heap: TableHeap::new(
+                    plan.first_page_id,
+                    self.context.buffer_pool_manager.clone(),
+                    self.context.transaction_manager.clone(),
+                    self.context.lock_manager.clone(),
+                    self.context.transaction_id,
+                ),
                 count: 0,
+                executed: false,
             }),
             Plan::Delete(plan) => Executor::Delete(DeleteExecutor {
                 plan: plan.clone(),
@@ -117,6 +114,7 @@ impl ExecutorEngine {
                     self.context.transaction_id,
                 ),
                 count: 0,
+                executed: false,
             }),
             Plan::Update(plan) => Executor::Update(UpdateExecutor {
                 plan: plan.clone(),
@@ -130,30 +128,8 @@ impl ExecutorEngine {
                     self.context.transaction_id,
                 ),
                 count: 0,
+                executed: false,
             }),
-        }
-    }
-
-    // TODO: use aggregation
-    fn count_result(&self, executor: &Executor) -> Option<Vec<Vec<Value>>> {
-        let count = match executor {
-            Executor::Insert(executor) => executor.count,
-            Executor::Delete(executor) => executor.count,
-            Executor::Update(executor) => executor.count,
-            _ => {
-                return None;
-            }
-        };
-        Some(vec![vec![Value::UnsignedBigInteger(
-            UnsignedBigIntegerValue(count as u64),
-        )]])
-    }
-    fn is_count_supported(&self, plan: &Plan) -> bool {
-        match plan {
-            Plan::Insert(_) => true,
-            Plan::Delete(_) => true,
-            Plan::Update(_) => true,
-            _ => false,
         }
     }
 }
