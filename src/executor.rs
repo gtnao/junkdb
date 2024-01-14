@@ -179,7 +179,7 @@ mod tests {
         lexer::tokenize,
         parser::Parser,
         test_helpers::setup_test_database,
-        value::{BooleanValue, IntegerValue, Value, VarcharValue},
+        value::{boolean::BooleanValue, integer::IntegerValue, varchar::VarcharValue, Value},
     };
 
     fn execute(

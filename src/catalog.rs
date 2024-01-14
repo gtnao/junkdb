@@ -9,7 +9,10 @@ use crate::{
     lock::LockManager,
     page::table_page::TABLE_PAGE_PAGE_TYPE,
     table::TableHeap,
-    value::{UnsignedBigIntegerValue, UnsignedIntegerValue, Value, VarcharValue},
+    value::{
+        unsigned_big_integer::UnsignedBigIntegerValue, unsigned_integer::UnsignedIntegerValue,
+        varchar::VarcharValue, Value,
+    },
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -402,7 +405,10 @@ mod tests {
         disk::DiskManager,
         lock::LockManager,
         table::TableHeap,
-        value::{UnsignedBigIntegerValue, UnsignedIntegerValue, Value, VarcharValue},
+        value::{
+            unsigned_big_integer::UnsignedBigIntegerValue, unsigned_integer::UnsignedIntegerValue,
+            varchar::VarcharValue, Value,
+        },
     };
 
     #[test]

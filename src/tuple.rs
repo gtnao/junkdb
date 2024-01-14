@@ -113,7 +113,7 @@ mod tests {
     use super::*;
     use crate::{
         catalog::{Column, DataType},
-        value::{IntegerValue, VarcharValue},
+        value::{integer::IntegerValue, varchar::VarcharValue},
     };
 
     #[test]

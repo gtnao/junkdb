@@ -4,6 +4,19 @@ use anyhow::{anyhow, Result};
 
 use crate::catalog::DataType;
 
+use self::{
+    big_integer::BigIntegerValue, boolean::BooleanValue, integer::IntegerValue,
+    unsigned_big_integer::UnsignedBigIntegerValue, unsigned_integer::UnsignedIntegerValue,
+    varchar::VarcharValue,
+};
+
+pub mod big_integer;
+pub mod boolean;
+pub mod integer;
+pub mod unsigned_big_integer;
+pub mod unsigned_integer;
+pub mod varchar;
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub enum Value {
     Integer(IntegerValue),
@@ -14,6 +27,7 @@ pub enum Value {
     Boolean(BooleanValue),
     Null,
 }
+
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -27,6 +41,7 @@ impl Display for Value {
         }
     }
 }
+
 impl Value {
     pub fn serialize(&self) -> Box<[u8]> {
         match self {
@@ -63,292 +78,34 @@ impl Value {
         }
     }
     pub fn perform_eq(&self, other: &Self) -> bool {
-        if self == &Value::Null || other == &Value::Null {
-            return false;
-        }
-        match (self, other) {
-            (Value::Integer(value), Value::Integer(other)) => value == other,
-            (Value::Integer(value), Value::UnsignedInteger(other)) => {
-                value.0 >= 0 && value.0 as u32 == other.0
-            }
-            (Value::Integer(value), Value::BigInteger(other)) => value.0 as i64 == other.0,
-            (Value::Integer(value), Value::UnsignedBigInteger(other)) => {
-                value.0 >= 0 && value.0 as u64 == other.0
-            }
-            (Value::UnsignedInteger(value), Value::UnsignedInteger(other)) => value == other,
-            (Value::UnsignedInteger(value), Value::Integer(other)) => {
-                other.0 >= 0 && value.0 == other.0 as u32
-            }
-            (Value::UnsignedInteger(value), Value::BigInteger(other)) => value.0 as i64 == other.0,
-            (Value::UnsignedInteger(value), Value::UnsignedBigInteger(other)) => {
-                value.0 as u64 == other.0
-            }
-            (Value::BigInteger(value), Value::BigInteger(other)) => value == other,
-            (Value::BigInteger(value), Value::Integer(other)) => value.0 == other.0 as i64,
-            (Value::BigInteger(value), Value::UnsignedInteger(other)) => value.0 == other.0 as i64,
-            (Value::BigInteger(value), Value::UnsignedBigInteger(other)) => {
-                value.0 >= 0 && value.0 as u64 == other.0
-            }
-            (Value::UnsignedBigInteger(value), Value::UnsignedBigInteger(other)) => value == other,
-            (Value::UnsignedBigInteger(value), Value::Integer(other)) => {
-                other.0 >= 0 && value.0 == other.0 as u64
-            }
-            (Value::UnsignedBigInteger(value), Value::UnsignedInteger(other)) => {
-                value.0 == other.0 as u64
-            }
-            (Value::UnsignedBigInteger(value), Value::BigInteger(other)) => {
-                other.0 >= 0 && value.0 == other.0 as u64
-            }
-            (Value::Varchar(value), Value::Varchar(other)) => value == other,
-            (Value::Boolean(value), Value::Boolean(other)) => value == other,
-            _ => false,
+        match self {
+            Value::Integer(value) => value.perform_equal(other),
+            Value::UnsignedInteger(value) => value.perform_equal(other),
+            Value::BigInteger(value) => value.perform_equal(other),
+            Value::UnsignedBigInteger(value) => value.perform_equal(other),
+            Value::Varchar(value) => value.perform_equal(other),
+            Value::Boolean(value) => value.perform_equal(other),
+            Value::Null => false,
         }
     }
     pub fn convert_to(&self, data_type: &DataType) -> Result<Self> {
         match self {
-            Value::Integer(value) => match data_type {
-                DataType::Integer => Ok(Value::Integer(value.clone())),
-                DataType::UnsignedInteger => {
-                    if value.0 >= 0 {
-                        Ok(Value::UnsignedInteger(UnsignedIntegerValue(value.0 as u32)))
-                    } else {
-                        Err(anyhow::anyhow!(
-                            "Cannot convert integer to unsigned integer"
-                        ))
-                    }
-                }
-                DataType::BigInteger => Ok(Value::BigInteger(BigIntegerValue(value.0 as i64))),
-                DataType::UnsignedBigInteger => Ok(Value::UnsignedBigInteger(if value.0 >= 0 {
-                    UnsignedBigIntegerValue(value.0 as u64)
-                } else {
-                    UnsignedBigIntegerValue((value.0 as i64).wrapping_neg() as u64)
-                })),
-                _ => Err(anyhow!("Cannot convert integer to {:?}", data_type)),
-            },
-            Value::UnsignedInteger(value) => match data_type {
-                DataType::Integer => {
-                    if value.0 <= i32::MAX as u32 {
-                        Ok(Value::Integer(IntegerValue(value.0 as i32)))
-                    } else {
-                        Err(anyhow::anyhow!(
-                            "Cannot convert unsigned integer to integer"
-                        ))
-                    }
-                }
-                DataType::UnsignedInteger => Ok(Value::UnsignedInteger(value.clone())),
-                DataType::BigInteger => Ok(Value::BigInteger(BigIntegerValue(value.0 as i64))),
-                DataType::UnsignedBigInteger => Ok(Value::UnsignedBigInteger(
-                    UnsignedBigIntegerValue(value.0 as u64),
-                )),
-                _ => Err(anyhow!(
-                    "Cannot convert unsigned integer to {:?}",
-                    data_type
-                )),
-            },
-            Value::BigInteger(value) => match data_type {
-                DataType::Integer => {
-                    if value.0 >= i32::MIN as i64 && value.0 <= i32::MAX as i64 {
-                        Ok(Value::Integer(IntegerValue(value.0 as i32)))
-                    } else {
-                        Err(anyhow::anyhow!("Cannot convert big integer to integer"))
-                    }
-                }
-                DataType::UnsignedInteger => {
-                    if value.0 >= 0 && value.0 <= u32::MAX as i64 {
-                        Ok(Value::UnsignedInteger(UnsignedIntegerValue(value.0 as u32)))
-                    } else {
-                        Err(anyhow::anyhow!(
-                            "Cannot convert big integer to unsigned integer"
-                        ))
-                    }
-                }
-                DataType::BigInteger => Ok(Value::BigInteger(value.clone())),
-                DataType::UnsignedBigInteger => {
-                    if value.0 >= 0 {
-                        Ok(Value::UnsignedBigInteger(UnsignedBigIntegerValue(
-                            value.0 as u64,
-                        )))
-                    } else {
-                        Err(anyhow::anyhow!(
-                            "Cannot convert big integer to unsigned big integer"
-                        ))
-                    }
-                }
-                _ => Err(anyhow!("Cannot convert big integer to {:?}", data_type)),
-            },
-            Value::UnsignedBigInteger(value) => match data_type {
-                DataType::Integer => {
-                    if value.0 <= i32::MAX as u64 {
-                        Ok(Value::Integer(IntegerValue(value.0 as i32)))
-                    } else {
-                        Err(anyhow::anyhow!(
-                            "Cannot convert unsigned big integer to integer"
-                        ))
-                    }
-                }
-                DataType::UnsignedInteger => {
-                    if value.0 <= u32::MAX as u64 {
-                        Ok(Value::UnsignedInteger(UnsignedIntegerValue(value.0 as u32)))
-                    } else {
-                        Err(anyhow::anyhow!(
-                            "Cannot convert unsigned big integer to unsigned integer"
-                        ))
-                    }
-                }
-                DataType::BigInteger => {
-                    if value.0 <= i64::MAX as u64 {
-                        Ok(Value::BigInteger(BigIntegerValue(value.0 as i64)))
-                    } else {
-                        Err(anyhow::anyhow!(
-                            "Cannot convert unsigned big integer to big integer"
-                        ))
-                    }
-                }
-                DataType::UnsignedBigInteger => Ok(Value::UnsignedBigInteger(value.clone())),
-                _ => Err(anyhow!(
-                    "Cannot convert unsigned big integer to {:?}",
-                    data_type
-                )),
-            },
-            Value::Varchar(value) => match data_type {
-                DataType::Varchar => Ok(Value::Varchar(value.clone())),
-                _ => Err(anyhow!("Cannot convert varchar to {:?}", data_type)),
-            },
-            Value::Boolean(value) => match data_type {
-                DataType::Boolean => Ok(Value::Boolean(value.clone())),
-                _ => Err(anyhow!("Cannot convert boolean to {:?}", data_type)),
-            },
-            Value::Null => Ok(Value::Null),
+            Value::Integer(value) => value.convert_to(data_type),
+            Value::UnsignedInteger(value) => value.convert_to(data_type),
+            Value::BigInteger(value) => value.convert_to(data_type),
+            Value::UnsignedBigInteger(value) => value.convert_to(data_type),
+            Value::Varchar(value) => value.convert_to(data_type),
+            Value::Boolean(value) => value.convert_to(data_type),
+            Value::Null => Some(Value::Null),
         }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-pub struct IntegerValue(pub i32);
-impl From<&[u8]> for IntegerValue {
-    fn from(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= 4);
-        let mut buffer = [0u8; 4];
-        buffer.copy_from_slice(&bytes[0..4]);
-        IntegerValue(i32::from_be_bytes(buffer))
-    }
-}
-impl IntegerValue {
-    fn serialize(&self) -> Box<[u8]> {
-        self.0.to_be_bytes().into()
-    }
-    fn size(&self) -> usize {
-        4
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-pub struct UnsignedIntegerValue(pub u32);
-impl From<&[u8]> for UnsignedIntegerValue {
-    fn from(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= 4);
-        let mut buffer = [0u8; 4];
-        buffer.copy_from_slice(&bytes[0..4]);
-        UnsignedIntegerValue(u32::from_be_bytes(buffer))
-    }
-}
-impl UnsignedIntegerValue {
-    fn serialize(&self) -> Box<[u8]> {
-        self.0.to_be_bytes().into()
-    }
-    fn size(&self) -> usize {
-        4
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-pub struct BigIntegerValue(pub i64);
-impl From<&[u8]> for BigIntegerValue {
-    fn from(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= 8);
-        let mut buffer = [0u8; 8];
-        buffer.copy_from_slice(&bytes[0..8]);
-        BigIntegerValue(i64::from_be_bytes(buffer))
-    }
-}
-impl BigIntegerValue {
-    fn serialize(&self) -> Box<[u8]> {
-        self.0.to_be_bytes().into()
-    }
-    fn size(&self) -> usize {
-        8
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-pub struct UnsignedBigIntegerValue(pub u64);
-impl From<&[u8]> for UnsignedBigIntegerValue {
-    fn from(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= 8);
-        let mut buffer = [0u8; 8];
-        buffer.copy_from_slice(&bytes[0..8]);
-        UnsignedBigIntegerValue(u64::from_be_bytes(buffer))
-    }
-}
-impl UnsignedBigIntegerValue {
-    fn serialize(&self) -> Box<[u8]> {
-        self.0.to_be_bytes().into()
-    }
-    fn size(&self) -> usize {
-        8
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-pub struct VarcharValue(pub String);
-impl From<&[u8]> for VarcharValue {
-    fn from(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= 4);
-        let mut buffer = [0u8; 4];
-        buffer.copy_from_slice(&bytes[0..4]);
-        let size = u32::from_be_bytes(buffer) as usize;
-        let mut buffer = vec![0u8; size];
-        buffer.copy_from_slice(&bytes[4..(4 + size)]);
-        if let Ok(string) = String::from_utf8(buffer) {
-            VarcharValue(string)
-        } else {
-            panic!("Invalid UTF-8 sequence")
-        }
-    }
-}
-impl VarcharValue {
-    fn serialize(&self) -> Box<[u8]> {
-        let bytes = self.0.as_bytes().to_vec();
-        let size = bytes.len() as u32;
-        let mut size_bytes = size.to_be_bytes().to_vec();
-        size_bytes.extend(bytes);
-        size_bytes.into()
-    }
-    fn size(&self) -> usize {
-        4 + self.0.len()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-pub struct BooleanValue(pub bool);
-impl From<&[u8]> for BooleanValue {
-    fn from(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= 1);
-        BooleanValue(bytes[0] != 0)
-    }
-}
-impl BooleanValue {
-    fn serialize(&self) -> Box<[u8]> {
-        let bytes = vec![if self.0 { 1 } else { 0 }];
-        bytes.into()
-    }
-    fn size(&self) -> usize {
-        1
+        .ok_or(anyhow!("Cannot convert {:?} to {:?}", self, data_type))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::value::integer::IntegerValue;
+
     use super::*;
 
     #[test]

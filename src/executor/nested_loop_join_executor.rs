@@ -4,7 +4,7 @@ use crate::{
     common::INVALID_TRANSACTION_ID,
     plan::NestedLoopJoinPlan,
     tuple::Tuple,
-    value::{BooleanValue, Value},
+    value::{boolean::BooleanValue, Value},
 };
 
 use super::{Executor, ExecutorContext};

@@ -4,8 +4,9 @@ use std::str::Chars;
 use anyhow::{anyhow, Result};
 
 use crate::value::{
-    BigIntegerValue, BooleanValue, IntegerValue, UnsignedBigIntegerValue, UnsignedIntegerValue,
-    Value, VarcharValue,
+    big_integer::BigIntegerValue, boolean::BooleanValue, integer::IntegerValue,
+    unsigned_big_integer::UnsignedBigIntegerValue, unsigned_integer::UnsignedIntegerValue,
+    varchar::VarcharValue, Value,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]

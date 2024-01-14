@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{
     plan::FilterPlan,
     tuple::Tuple,
-    value::{BooleanValue, Value},
+    value::{boolean::BooleanValue, Value},
 };
 
 use super::{Executor, ExecutorContext};

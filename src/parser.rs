@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use crate::{
     catalog::DataType,
     lexer::{Keyword, Token},
-    value::{IntegerValue, Value},
+    value::{integer::IntegerValue, Value},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -727,7 +727,7 @@ impl Parser {
 mod tests {
     use crate::{
         lexer::tokenize,
-        value::{BooleanValue, IntegerValue, VarcharValue},
+        value::{boolean::BooleanValue, varchar::VarcharValue},
     };
 
     use anyhow::Result;

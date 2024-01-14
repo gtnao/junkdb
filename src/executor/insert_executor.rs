@@ -6,7 +6,7 @@ use crate::{
     plan::InsertPlan,
     table::TableHeap,
     tuple::Tuple,
-    value::{UnsignedBigIntegerValue, Value},
+    value::{unsigned_big_integer::UnsignedBigIntegerValue, Value},
 };
 
 use super::ExecutorContext;

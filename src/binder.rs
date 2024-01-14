@@ -13,7 +13,7 @@ use crate::{
         UpdateStatementAST,
     },
     tuple::Tuple,
-    value::{BooleanValue, Value},
+    value::{boolean::BooleanValue, Value},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -586,7 +586,7 @@ mod tests {
         lexer::tokenize,
         parser::Parser,
         test_helpers::setup_test_database,
-        value::{IntegerValue, VarcharValue},
+        value::{integer::IntegerValue, varchar::VarcharValue},
     };
 
     use super::*;

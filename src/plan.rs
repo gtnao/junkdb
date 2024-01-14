@@ -283,7 +283,7 @@ mod tests {
         lexer::tokenize,
         parser::{BinaryOperator, Parser},
         test_helpers::setup_test_database,
-        value::{IntegerValue, Value},
+        value::{integer::IntegerValue, Value},
     };
 
     use super::*;
