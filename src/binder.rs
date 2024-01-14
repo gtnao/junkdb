@@ -3,13 +3,14 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 
 use crate::{
-    catalog::{Catalog, DataType, Schema},
+    catalog::{Catalog, Column, DataType, Schema},
     common::{PageID, TransactionID},
     parser::{
         BaseTableReferenceAST, BinaryExpressionAST, BinaryOperator, DeleteStatementAST,
         ExpressionAST, FunctionCallExpressionAST, InsertStatementAST, JoinTableReferenceAST,
         JoinType, LiteralExpressionAST, PathExpressionAST, SelectStatementAST, StatementAST,
-        TableReferenceAST, UnaryExpressionAST, UnaryOperator, UpdateStatementAST,
+        SubqueryTableReferenceAST, TableReferenceAST, UnaryExpressionAST, UnaryOperator,
+        UpdateStatementAST,
     },
     tuple::Tuple,
     value::{BooleanValue, Value},
@@ -25,7 +26,7 @@ pub enum BoundStatementAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundSelectStatementAST {
     pub select_elements: Vec<BoundSelectElementAST>,
-    pub table_reference: BoundTableReferenceAST,
+    pub table_reference: Box<BoundTableReferenceAST>,
     pub condition: Option<BoundExpressionAST>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -37,6 +38,7 @@ pub struct BoundSelectElementAST {
 pub enum BoundTableReferenceAST {
     Base(BoundBaseTableReferenceAST),
     Join(BoundJoinTableReferenceAST),
+    Subquery(BoundSubqueryTableReferenceAST),
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundBaseTableReferenceAST {
@@ -51,6 +53,12 @@ pub struct BoundJoinTableReferenceAST {
     pub right: Box<BoundTableReferenceAST>,
     pub condition: Option<BoundExpressionAST>,
     pub join_type: JoinType,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BoundSubqueryTableReferenceAST {
+    pub select_statement: BoundSelectStatementAST,
+    pub alias: String,
+    pub schema: Schema,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundInsertStatementAST {
@@ -89,7 +97,7 @@ pub struct BoundPathExpressionAST {
     pub path: Vec<String>,
     pub table_index: usize,
     pub column_index: usize,
-    pub data_type: DataType,
+    pub data_type: Option<DataType>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundLiteralExpressionAST {
@@ -113,8 +121,17 @@ pub struct BoundFunctionCallExpressionAST {
     pub arguments: Vec<BoundExpressionAST>,
 }
 
+struct ScopeTable {
+    table_name: String,
+    alias: Option<String>,
+    columns: Vec<ScopeColumn>,
+}
+struct ScopeColumn {
+    column_name: String,
+    data_type: Option<DataType>,
+}
 struct Scope {
-    tables: Vec<BoundBaseTableReferenceAST>,
+    tables: Vec<ScopeTable>,
 }
 pub struct Binder {
     catalog: Arc<Mutex<Catalog>>,
@@ -133,7 +150,9 @@ impl Binder {
 
     pub fn bind_statement(&mut self, statement: &StatementAST) -> Result<BoundStatementAST> {
         match statement {
-            StatementAST::Select(statement) => self.bind_select(statement),
+            StatementAST::Select(statement) => {
+                Ok(BoundStatementAST::Select(self.bind_select(statement)?))
+            }
             StatementAST::Insert(statement) => self.bind_insert(statement),
             StatementAST::Delete(statement) => self.bind_delete(statement),
             StatementAST::Update(statement) => self.bind_update(statement),
@@ -141,7 +160,7 @@ impl Binder {
         }
     }
 
-    fn bind_select(&mut self, statement: &SelectStatementAST) -> Result<BoundStatementAST> {
+    fn bind_select(&mut self, statement: &SelectStatementAST) -> Result<BoundSelectStatementAST> {
         self.scopes.push(Scope { tables: Vec::new() });
         let table_reference = self.bind_table_reference(&statement.table_reference)?;
         let mut select_elements = Vec::new();
@@ -173,11 +192,11 @@ impl Binder {
             None => None,
         };
         self.scopes.pop();
-        Ok(BoundStatementAST::Select(BoundSelectStatementAST {
+        Ok(BoundSelectStatementAST {
             select_elements,
-            table_reference,
+            table_reference: Box::new(table_reference),
             condition,
-        }))
+        })
     }
 
     fn bind_table_reference(
@@ -191,7 +210,9 @@ impl Binder {
             TableReferenceAST::Join(table_reference) => Ok(BoundTableReferenceAST::Join(
                 self.bind_join_table_reference(table_reference)?,
             )),
-            TableReferenceAST::Subquery(_) => unimplemented!(),
+            TableReferenceAST::Subquery(table_reference) => Ok(BoundTableReferenceAST::Subquery(
+                self.bind_subquery_table_reference(table_reference)?,
+            )),
         }
     }
 
@@ -216,7 +237,19 @@ impl Binder {
             .last_mut()
             .ok_or_else(|| anyhow::anyhow!("no scope"))?
             .tables
-            .push(table_reference.clone());
+            .push(ScopeTable {
+                table_name: table_reference.table_name.clone(),
+                alias: table_reference.alias.clone(),
+                columns: table_reference
+                    .schema
+                    .columns
+                    .iter()
+                    .map(|column| ScopeColumn {
+                        column_name: column.name.clone(),
+                        data_type: Some(column.data_type.clone()),
+                    })
+                    .collect::<Vec<_>>(),
+            });
         Ok(table_reference)
     }
 
@@ -236,6 +269,46 @@ impl Binder {
             right,
             condition,
             join_type: table_reference.join_type.clone(),
+        })
+    }
+
+    fn bind_subquery_table_reference(
+        &mut self,
+        table_reference: &SubqueryTableReferenceAST,
+    ) -> Result<BoundSubqueryTableReferenceAST> {
+        let select_statement = self.bind_select(&table_reference.select_statement)?;
+        let alias = table_reference.alias.clone();
+        let schema = Schema {
+            columns: select_statement
+                .select_elements
+                .iter()
+                .map(|element| Column {
+                    name: element.name.clone(),
+                    // TODO:
+                    data_type: element.expression.data_type().unwrap(),
+                })
+                .collect::<Vec<_>>(),
+        };
+        self.scopes
+            .last_mut()
+            .ok_or_else(|| anyhow::anyhow!("no scope"))?
+            .tables
+            .push(ScopeTable {
+                table_name: alias.clone(),
+                alias: Some(alias.clone()),
+                columns: schema
+                    .columns
+                    .iter()
+                    .map(|column| ScopeColumn {
+                        column_name: column.name.clone(),
+                        data_type: Some(column.data_type.clone()),
+                    })
+                    .collect::<Vec<_>>(),
+            });
+        Ok(BoundSubqueryTableReferenceAST {
+            select_statement,
+            alias,
+            schema,
         })
     }
 
@@ -394,15 +467,15 @@ impl Binder {
     fn resolve_path_expression(
         &mut self,
         expression: &PathExpressionAST,
-    ) -> Result<(usize, usize, DataType)> {
+    ) -> Result<(usize, usize, Option<DataType>)> {
         let scope = self
             .scopes
             .last()
             .ok_or_else(|| anyhow::anyhow!("no scope"))?;
         if expression.path.len() == 1 {
             for (i, table) in scope.tables.iter().enumerate() {
-                for (j, column) in table.schema.columns.iter().enumerate() {
-                    if column.name == expression.path[0] {
+                for (j, column) in table.columns.iter().enumerate() {
+                    if column.column_name == expression.path[0] {
                         return Ok((i, j, column.data_type.clone()));
                     }
                 }
@@ -433,12 +506,11 @@ impl Binder {
                 return Err(anyhow::anyhow!("ambiguous column {}", expression.path[0]));
             }
             for (i, column) in scope.tables[matched_table_indexes[0]]
-                .schema
                 .columns
                 .iter()
                 .enumerate()
             {
-                if column.name == expression.path[1] {
+                if column.column_name == expression.path[1] {
                     return Ok((matched_table_indexes[0], i, column.data_type.clone()));
                 }
             }
@@ -483,7 +555,7 @@ impl BoundExpressionAST {
 
     pub fn data_type(&self) -> Option<DataType> {
         match self {
-            BoundExpressionAST::Path(path_expression) => Some(path_expression.data_type.clone()),
+            BoundExpressionAST::Path(path_expression) => path_expression.data_type.clone(),
             BoundExpressionAST::Literal(literal_expression) => literal_expression.data_type.clone(),
             BoundExpressionAST::Unary(unary_expression) => unary_expression.operand.data_type(),
             BoundExpressionAST::Binary(binary_expression) => {
@@ -544,7 +616,7 @@ mod tests {
                             path: vec!["c1".to_string()],
                             table_index: 0,
                             column_index: 0,
-                            data_type: DataType::Integer,
+                            data_type: Some(DataType::Integer),
                         }),
                         name: "_c1".to_string(),
                     },
@@ -553,7 +625,7 @@ mod tests {
                             path: vec!["_t1".to_string(), "c2".to_string()],
                             table_index: 0,
                             column_index: 1,
-                            data_type: DataType::Varchar,
+                            data_type: Some(DataType::Varchar),
                         }),
                         name: "c2".to_string(),
                     },
@@ -565,30 +637,32 @@ mod tests {
                         name: "__c1".to_string(),
                     },
                 ],
-                table_reference: BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
-                    table_name: "t1".to_string(),
-                    alias: Some("_t1".to_string()),
-                    first_page_id: PageID(3),
-                    schema: Schema {
-                        columns: vec![
-                            Column {
-                                name: "c1".to_string(),
-                                data_type: DataType::Integer,
-                            },
-                            Column {
-                                name: "c2".to_string(),
-                                data_type: DataType::Varchar,
-                            },
-                        ],
-                    },
-                }),
+                table_reference: Box::new(BoundTableReferenceAST::Base(
+                    BoundBaseTableReferenceAST {
+                        table_name: "t1".to_string(),
+                        alias: Some("_t1".to_string()),
+                        first_page_id: PageID(3),
+                        schema: Schema {
+                            columns: vec![
+                                Column {
+                                    name: "c1".to_string(),
+                                    data_type: DataType::Integer,
+                                },
+                                Column {
+                                    name: "c2".to_string(),
+                                    data_type: DataType::Varchar,
+                                },
+                            ],
+                        },
+                    }
+                )),
                 condition: Some(BoundExpressionAST::Binary(BoundBinaryExpressionAST {
                     operator: BinaryOperator::Equal,
                     left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
                         path: vec!["c1".to_string()],
                         table_index: 0,
                         column_index: 0,
-                        data_type: DataType::Integer,
+                        data_type: Some(DataType::Integer),
                     })),
                     right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
                         value: Value::Integer(IntegerValue(1)),
@@ -620,7 +694,7 @@ mod tests {
                             path: vec!["t1".to_string(), "c1".to_string()],
                             table_index: 0,
                             column_index: 0,
-                            data_type: DataType::Integer,
+                            data_type: Some(DataType::Integer),
                         }),
                         name: "c1".to_string(),
                     },
@@ -629,18 +703,180 @@ mod tests {
                             path: vec!["_t2".to_string(), "c1".to_string()],
                             table_index: 1,
                             column_index: 1,
-                            data_type: DataType::Integer,
+                            data_type: Some(DataType::Integer),
                         }),
                         name: "c1".to_string(),
                     },
                 ],
-                table_reference: BoundTableReferenceAST::Join(BoundJoinTableReferenceAST {
-                    left: Box::new(BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
-                        table_name: "t1".to_string(),
-                        alias: None,
-                        first_page_id: PageID(3),
+                table_reference: Box::new(BoundTableReferenceAST::Join(
+                    BoundJoinTableReferenceAST {
+                        left: Box::new(BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
+                            table_name: "t1".to_string(),
+                            alias: None,
+                            first_page_id: PageID(3),
+                            schema: Schema {
+                                columns: vec![
+                                    Column {
+                                        name: "c1".to_string(),
+                                        data_type: DataType::Integer,
+                                    },
+                                    Column {
+                                        name: "c2".to_string(),
+                                        data_type: DataType::Varchar,
+                                    },
+                                ],
+                            },
+                        })),
+                        right: Box::new(BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
+                            table_name: "t2".to_string(),
+                            alias: Some("_t2".to_string()),
+                            first_page_id: PageID(4),
+                            schema: Schema {
+                                columns: vec![
+                                    Column {
+                                        name: "t1_c1".to_string(),
+                                        data_type: DataType::Integer,
+                                    },
+                                    Column {
+                                        name: "c1".to_string(),
+                                        data_type: DataType::Integer,
+                                    },
+                                    Column {
+                                        name: "c2".to_string(),
+                                        data_type: DataType::Varchar,
+                                    },
+                                ]
+                            }
+                        })),
+                        condition: Some(BoundExpressionAST::Binary(BoundBinaryExpressionAST {
+                            operator: BinaryOperator::Equal,
+                            left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
+                                path: vec!["t1".to_string(), "c1".to_string()],
+                                table_index: 0,
+                                column_index: 0,
+                                data_type: Some(DataType::Integer),
+                            })),
+                            right: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
+                                path: vec!["_t2".to_string(), "t1_c1".to_string()],
+                                table_index: 1,
+                                column_index: 0,
+                                data_type: Some(DataType::Integer),
+                            })),
+                        })),
+                        join_type: JoinType::Inner,
+                    }
+                )),
+                condition: None,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_bind_subquery() -> Result<()> {
+        let instance = setup_test_database()?;
+
+        let sql = r#"
+            select
+              sub1.c1,
+              literal1
+            from (
+              select
+                'foo' AS literal1,
+                c1,
+                c2
+              from t1
+            ) as sub1;
+        "#;
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+        let statement = parser.parse()?;
+
+        let txn_id = instance.begin(None)?;
+        let mut binder = Binder::new(instance.catalog, txn_id);
+        let bound_statement = binder.bind_statement(&statement)?;
+        assert_eq!(
+            bound_statement,
+            BoundStatementAST::Select(BoundSelectStatementAST {
+                select_elements: vec![
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Path(BoundPathExpressionAST {
+                            path: vec!["sub1".to_string(), "c1".to_string()],
+                            table_index: 0,
+                            column_index: 1,
+                            data_type: Some(DataType::Integer),
+                        }),
+                        name: "c1".to_string(),
+                    },
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Path(BoundPathExpressionAST {
+                            path: vec!["literal1".to_string()],
+                            table_index: 0,
+                            column_index: 0,
+                            data_type: Some(DataType::Varchar),
+                        }),
+                        name: "literal1".to_string(),
+                    },
+                ],
+                table_reference: Box::new(BoundTableReferenceAST::Subquery(
+                    BoundSubqueryTableReferenceAST {
+                        select_statement: BoundSelectStatementAST {
+                            select_elements: vec![
+                                BoundSelectElementAST {
+                                    expression: BoundExpressionAST::Literal(
+                                        BoundLiteralExpressionAST {
+                                            value: Value::Varchar(VarcharValue("foo".to_string())),
+                                            data_type: Some(DataType::Varchar),
+                                        }
+                                    ),
+                                    name: "literal1".to_string(),
+                                },
+                                BoundSelectElementAST {
+                                    expression: BoundExpressionAST::Path(BoundPathExpressionAST {
+                                        path: vec!["c1".to_string()],
+                                        table_index: 0,
+                                        column_index: 0,
+                                        data_type: Some(DataType::Integer),
+                                    }),
+                                    name: "c1".to_string(),
+                                },
+                                BoundSelectElementAST {
+                                    expression: BoundExpressionAST::Path(BoundPathExpressionAST {
+                                        path: vec!["c2".to_string()],
+                                        table_index: 0,
+                                        column_index: 1,
+                                        data_type: Some(DataType::Varchar),
+                                    }),
+                                    name: "c2".to_string(),
+                                },
+                            ],
+                            table_reference: Box::new(BoundTableReferenceAST::Base(
+                                BoundBaseTableReferenceAST {
+                                    table_name: "t1".to_string(),
+                                    alias: None,
+                                    first_page_id: PageID(3),
+                                    schema: Schema {
+                                        columns: vec![
+                                            Column {
+                                                name: "c1".to_string(),
+                                                data_type: DataType::Integer,
+                                            },
+                                            Column {
+                                                name: "c2".to_string(),
+                                                data_type: DataType::Varchar,
+                                            },
+                                        ],
+                                    },
+                                }
+                            )),
+                            condition: None,
+                        },
+                        alias: "sub1".to_string(),
                         schema: Schema {
                             columns: vec![
+                                Column {
+                                    name: "literal1".to_string(),
+                                    data_type: DataType::Varchar,
+                                },
                                 Column {
                                     name: "c1".to_string(),
                                     data_type: DataType::Integer,
@@ -651,45 +887,8 @@ mod tests {
                                 },
                             ],
                         },
-                    })),
-                    right: Box::new(BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
-                        table_name: "t2".to_string(),
-                        alias: Some("_t2".to_string()),
-                        first_page_id: PageID(4),
-                        schema: Schema {
-                            columns: vec![
-                                Column {
-                                    name: "t1_c1".to_string(),
-                                    data_type: DataType::Integer,
-                                },
-                                Column {
-                                    name: "c1".to_string(),
-                                    data_type: DataType::Integer,
-                                },
-                                Column {
-                                    name: "c2".to_string(),
-                                    data_type: DataType::Varchar,
-                                },
-                            ]
-                        }
-                    })),
-                    condition: Some(BoundExpressionAST::Binary(BoundBinaryExpressionAST {
-                        operator: BinaryOperator::Equal,
-                        left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
-                            path: vec!["t1".to_string(), "c1".to_string()],
-                            table_index: 0,
-                            column_index: 0,
-                            data_type: DataType::Integer,
-                        })),
-                        right: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
-                            path: vec!["_t2".to_string(), "t1_c1".to_string()],
-                            table_index: 1,
-                            column_index: 0,
-                            data_type: DataType::Integer,
-                        })),
-                    })),
-                    join_type: JoinType::Inner,
-                }),
+                    }
+                )),
                 condition: None,
             })
         );
@@ -776,7 +975,7 @@ mod tests {
                         path: vec!["c1".to_string()],
                         table_index: 0,
                         column_index: 0,
-                        data_type: DataType::Integer,
+                        data_type: Some(DataType::Integer),
                     })),
                     right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
                         value: Value::Integer(IntegerValue(1)),
@@ -847,7 +1046,7 @@ mod tests {
                         path: vec!["c1".to_string()],
                         table_index: 0,
                         column_index: 0,
-                        data_type: DataType::Integer,
+                        data_type: Some(DataType::Integer),
                     })),
                     right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
                         value: Value::Integer(IntegerValue(1)),

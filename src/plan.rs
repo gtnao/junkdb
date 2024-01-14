@@ -139,6 +139,8 @@ impl Planner {
                 self.plan_base_table_reference(table_reference)
             }
             BoundTableReferenceAST::Join(join) => self.plan_join_table_reference(join),
+            // TODO:
+            BoundTableReferenceAST::Subquery(_) => unimplemented!(),
         }
     }
     fn plan_base_table_reference(&self, table_reference: &BoundBaseTableReferenceAST) -> Plan {
@@ -194,6 +196,8 @@ impl Planner {
                 .flatten()
                 .collect()
             }
+            // TODO:
+            BoundTableReferenceAST::Subquery(_) => unimplemented!(),
         }
     }
     fn plan_insert_statement(&self, insert_statement: &BoundInsertStatementAST) -> Plan {
@@ -304,7 +308,7 @@ mod tests {
                         operator: BinaryOperator::Equal,
                         left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
                             path: vec!["c1".to_owned()],
-                            data_type: DataType::Integer,
+                            data_type: Some(DataType::Integer),
                             table_index: 0,
                             column_index: 0,
                         })),
