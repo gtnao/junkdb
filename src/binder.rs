@@ -534,8 +534,8 @@ impl BoundExpressionAST {
                 values[path_expression.column_index].clone()
             }
             BoundExpressionAST::Literal(literal_expression) => literal_expression.value.clone(),
-            BoundExpressionAST::Unary(unary_expression) => {
-                let operand = unary_expression.operand.eval(tuples, schemas);
+            BoundExpressionAST::Unary(_) => {
+                // let operand = unary_expression.operand.eval(tuples, schemas);
                 // TODO:
                 unimplemented!()
             }
