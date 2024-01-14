@@ -157,6 +157,12 @@ impl Iterator for TableIterator {
 }
 
 impl TableIterator {
+    pub fn reset(&mut self) {
+        self.current_page_id = self.heap.first_page_id;
+        self.next_page_id = Some(self.heap.first_page_id);
+        self.tuples = Vec::new();
+        self.tuple_index = 0;
+    }
     fn next_internal(&mut self) -> Option<Tuple> {
         if self.tuple_index >= self.tuples.len() {
             let next_page_id = self.next_page_id?;

@@ -9,6 +9,7 @@ use crate::{
     concurrency::TransactionManager,
     lock::LockManager,
     plan::Plan,
+    table::TableHeap,
     tuple::Tuple,
     value::{UnsignedBigIntegerValue, Value},
 };
@@ -65,7 +66,14 @@ impl ExecutorEngine {
             Plan::SeqScan(plan) => Executor::SeqScan(SeqScanExecutor {
                 plan: plan.clone(),
                 executor_context: &self.context,
-                table_iterator: None,
+                table_iterator: TableHeap::new(
+                    plan.first_page_id,
+                    self.context.buffer_pool_manager.clone(),
+                    self.context.transaction_manager.clone(),
+                    self.context.lock_manager.clone(),
+                    self.context.transaction_id,
+                )
+                .iter(),
             }),
             Plan::Filter(plan) => Executor::Filter(FilterExecutor {
                 plan: plan.clone(),
@@ -101,14 +109,26 @@ impl ExecutorEngine {
                 plan: plan.clone(),
                 child: Box::new(self.create_executor(&plan.child)),
                 executor_context: &self.context,
-                table_heap: None,
+                table_heap: TableHeap::new(
+                    plan.first_page_id,
+                    self.context.buffer_pool_manager.clone(),
+                    self.context.transaction_manager.clone(),
+                    self.context.lock_manager.clone(),
+                    self.context.transaction_id,
+                ),
                 count: 0,
             }),
             Plan::Update(plan) => Executor::Update(UpdateExecutor {
                 plan: plan.clone(),
                 child: Box::new(self.create_executor(&plan.child)),
                 executor_context: &self.context,
-                table_heap: None,
+                table_heap: TableHeap::new(
+                    plan.first_page_id,
+                    self.context.buffer_pool_manager.clone(),
+                    self.context.transaction_manager.clone(),
+                    self.context.lock_manager.clone(),
+                    self.context.transaction_id,
+                ),
                 count: 0,
             }),
         }
