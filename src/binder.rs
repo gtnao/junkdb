@@ -600,6 +600,102 @@ mod tests {
     }
 
     #[test]
+    fn test_bind_select_join() -> Result<()> {
+        let instance = setup_test_database()?;
+
+        let sql = "select t1.c1, _t2.c1 from t1 inner join t2 as _t2 on t1.c1 = _t2.t1_c1";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+        let statement = parser.parse()?;
+
+        let txn_id = instance.begin(None)?;
+        let mut binder = Binder::new(instance.catalog, txn_id);
+        let bound_statement = binder.bind_statement(&statement)?;
+        assert_eq!(
+            bound_statement,
+            BoundStatementAST::Select(BoundSelectStatementAST {
+                select_elements: vec![
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Path(BoundPathExpressionAST {
+                            path: vec!["t1".to_string(), "c1".to_string()],
+                            table_index: 0,
+                            column_index: 0,
+                            data_type: DataType::Integer,
+                        }),
+                        name: "c1".to_string(),
+                    },
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Path(BoundPathExpressionAST {
+                            path: vec!["_t2".to_string(), "c1".to_string()],
+                            table_index: 1,
+                            column_index: 1,
+                            data_type: DataType::Integer,
+                        }),
+                        name: "c1".to_string(),
+                    },
+                ],
+                table_reference: BoundTableReferenceAST::Join(BoundJoinTableReferenceAST {
+                    left: Box::new(BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
+                        table_name: "t1".to_string(),
+                        alias: None,
+                        first_page_id: PageID(3),
+                        schema: Schema {
+                            columns: vec![
+                                Column {
+                                    name: "c1".to_string(),
+                                    data_type: DataType::Integer,
+                                },
+                                Column {
+                                    name: "c2".to_string(),
+                                    data_type: DataType::Varchar,
+                                },
+                            ],
+                        },
+                    })),
+                    right: Box::new(BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
+                        table_name: "t2".to_string(),
+                        alias: Some("_t2".to_string()),
+                        first_page_id: PageID(4),
+                        schema: Schema {
+                            columns: vec![
+                                Column {
+                                    name: "t1_c1".to_string(),
+                                    data_type: DataType::Integer,
+                                },
+                                Column {
+                                    name: "c1".to_string(),
+                                    data_type: DataType::Integer,
+                                },
+                                Column {
+                                    name: "c2".to_string(),
+                                    data_type: DataType::Varchar,
+                                },
+                            ]
+                        }
+                    })),
+                    condition: Some(BoundExpressionAST::Binary(BoundBinaryExpressionAST {
+                        operator: BinaryOperator::Equal,
+                        left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
+                            path: vec!["t1".to_string(), "c1".to_string()],
+                            table_index: 0,
+                            column_index: 0,
+                            data_type: DataType::Integer,
+                        })),
+                        right: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
+                            path: vec!["_t2".to_string(), "t1_c1".to_string()],
+                            table_index: 1,
+                            column_index: 0,
+                            data_type: DataType::Integer,
+                        })),
+                    })),
+                    join_type: JoinType::Inner,
+                }),
+                condition: None,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_bind_insert() -> Result<()> {
         let instance = setup_test_database()?;
 
