@@ -2,8 +2,8 @@ use crate::{
     binder::{
         BoundAssignmentAST, BoundBaseTableReferenceAST, BoundDeleteStatementAST,
         BoundExpressionAST, BoundInsertStatementAST, BoundJoinTableReferenceAST,
-        BoundSelectElementAST, BoundSelectStatementAST, BoundStatementAST, BoundTableReferenceAST,
-        BoundUpdateStatementAST,
+        BoundSelectElementAST, BoundSelectStatementAST, BoundStatementAST,
+        BoundSubqueryTableReferenceAST, BoundTableReferenceAST, BoundUpdateStatementAST,
     },
     catalog::{Column, DataType, Schema},
     common::PageID,
@@ -138,9 +138,12 @@ impl Planner {
             BoundTableReferenceAST::Base(table_reference) => {
                 self.plan_base_table_reference(table_reference)
             }
-            BoundTableReferenceAST::Join(join) => self.plan_join_table_reference(join),
-            // TODO:
-            BoundTableReferenceAST::Subquery(_) => unimplemented!(),
+            BoundTableReferenceAST::Join(table_reference) => {
+                self.plan_join_table_reference(table_reference)
+            }
+            BoundTableReferenceAST::Subquery(table_reference) => {
+                self.plan_subquery_table_reference(table_reference)
+            }
         }
     }
     fn plan_base_table_reference(&self, table_reference: &BoundBaseTableReferenceAST) -> Plan {
@@ -175,6 +178,12 @@ impl Planner {
             join_types,
         })
     }
+    fn plan_subquery_table_reference(
+        &self,
+        table_reference: &BoundSubqueryTableReferenceAST,
+    ) -> Plan {
+        self.plan_select_statement(&table_reference.select_statement)
+    }
     fn recursive_plan_table_reference(
         &self,
         table_reference: &BoundTableReferenceAST,
@@ -196,8 +205,9 @@ impl Planner {
                 .flatten()
                 .collect()
             }
-            // TODO:
-            BoundTableReferenceAST::Subquery(_) => unimplemented!(),
+            BoundTableReferenceAST::Subquery(table_reference) => {
+                vec![self.plan_subquery_table_reference(table_reference)]
+            }
         }
     }
     fn plan_insert_statement(&self, insert_statement: &BoundInsertStatementAST) -> Plan {

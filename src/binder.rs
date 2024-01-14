@@ -559,6 +559,9 @@ impl BoundExpressionAST {
             BoundExpressionAST::Literal(literal_expression) => literal_expression.data_type.clone(),
             BoundExpressionAST::Unary(unary_expression) => unary_expression.operand.data_type(),
             BoundExpressionAST::Binary(binary_expression) => {
+                if binary_expression.operator == BinaryOperator::Equal {
+                    return Some(DataType::Boolean);
+                }
                 let left = binary_expression.left.data_type();
                 let right = binary_expression.right.data_type();
                 if left.is_none() || right.is_none() {

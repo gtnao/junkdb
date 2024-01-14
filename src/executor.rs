@@ -183,7 +183,7 @@ mod tests {
         lexer::tokenize,
         parser::Parser,
         test_helpers::setup_test_database,
-        value::{IntegerValue, Value, VarcharValue},
+        value::{BooleanValue, IntegerValue, Value, VarcharValue},
     };
 
     fn execute(
@@ -232,6 +232,16 @@ mod tests {
         let sql = "SELECT * FROM t1 WHERE c2 = 'qux'";
         let (rows, _) = execute(sql, &instance, txn_id)?;
         assert_eq!(rows.len(), 1);
+
+        let sql = "SELECT * FROM (SELECT c1 = 1 FROM t1) AS sub1";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+        assert_eq!(
+            rows,
+            vec![
+                vec![Value::Boolean(BooleanValue(false))],
+                vec![Value::Boolean(BooleanValue(true))],
+            ]
+        );
 
         Ok(())
     }
