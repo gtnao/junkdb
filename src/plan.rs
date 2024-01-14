@@ -7,9 +7,10 @@ use crate::{
     },
     catalog::{Column, DataType, Schema},
     common::PageID,
+    parser::JoinType,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Plan {
     SeqScan(SeqScanPlan),
     Filter(FilterPlan),
@@ -32,44 +33,45 @@ impl Plan {
         }
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SeqScanPlan {
     pub first_page_id: PageID,
     pub schema: Schema,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FilterPlan {
     pub condition: BoundExpressionAST,
     pub schema: Schema,
     pub child: Box<Plan>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ProjectPlan {
     pub select_elements: Vec<BoundSelectElementAST>,
     pub schema: Schema,
     pub child: Box<Plan>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct NestedLoopJoinPlan {
     pub schema: Schema,
     pub outer_child: Box<Plan>,
     pub inner_children: Vec<Box<Plan>>,
     pub conditions: Vec<Option<BoundExpressionAST>>,
+    pub join_types: Vec<JoinType>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InsertPlan {
     pub first_page_id: PageID,
     pub table_schema: Schema,
     pub values: Vec<BoundExpressionAST>,
     pub schema: Schema,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DeletePlan {
     pub first_page_id: PageID,
     pub schema: Schema,
     pub child: Box<Plan>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct UpdatePlan {
     pub first_page_id: PageID,
     pub assignments: Vec<BoundAssignmentAST>,
@@ -147,9 +149,13 @@ impl Planner {
     }
     fn plan_join_table_reference(&self, table_reference: &BoundJoinTableReferenceAST) -> Plan {
         let mut conditions = vec![table_reference.condition.clone()];
+        let mut join_types = vec![table_reference.join_type.clone()];
         let outer_child = self.plan_table_reference(&table_reference.left);
-        let inner_children =
-            self.recursive_plan_table_reference(&table_reference.right, &mut conditions);
+        let inner_children = self.recursive_plan_table_reference(
+            &table_reference.right,
+            &mut conditions,
+            &mut join_types,
+        );
         let mut schema = Schema {
             columns: outer_child.schema().columns.clone(),
         };
@@ -164,12 +170,14 @@ impl Planner {
                 .map(|plan| Box::new(plan))
                 .collect(),
             conditions,
+            join_types,
         })
     }
     fn recursive_plan_table_reference(
         &self,
         table_reference: &BoundTableReferenceAST,
         conditions: &mut Vec<Option<BoundExpressionAST>>,
+        join_types: &mut Vec<JoinType>,
     ) -> Vec<Plan> {
         match table_reference {
             BoundTableReferenceAST::Base(table_reference) => {
@@ -177,9 +185,10 @@ impl Planner {
             }
             BoundTableReferenceAST::Join(join) => {
                 conditions.push(join.condition.clone());
+                join_types.push(join.join_type.clone());
                 vec![
-                    self.recursive_plan_table_reference(&join.left, conditions),
-                    self.recursive_plan_table_reference(&join.right, conditions),
+                    self.recursive_plan_table_reference(&join.left, conditions, join_types),
+                    self.recursive_plan_table_reference(&join.right, conditions, join_types),
                 ]
                 .into_iter()
                 .flatten()
@@ -248,5 +257,92 @@ impl Planner {
             },
             child: Box::new(plan),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        binder::{
+            Binder, BoundBinaryExpressionAST, BoundLiteralExpressionAST, BoundPathExpressionAST,
+        },
+        lexer::tokenize,
+        parser::{BinaryOperator, Parser},
+        test_helpers::setup_test_database,
+        value::{IntegerValue, Value},
+    };
+
+    use super::*;
+    use anyhow::Result;
+
+    #[test]
+    fn test_plan_delete_statement() -> Result<()> {
+        let instance = setup_test_database()?;
+
+        let sql = "DELETE FROM t1 WHERE c1 = 1";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+        let statement = parser.parse()?;
+
+        let txn_id = instance.begin(None)?;
+        let mut binder = Binder::new(instance.catalog, txn_id);
+        let bound_statement = binder.bind_statement(&statement)?;
+
+        let planner = Planner::new(bound_statement);
+        let plan = planner.plan();
+        assert_eq!(
+            plan,
+            Plan::Delete(DeletePlan {
+                first_page_id: PageID(3),
+                schema: Schema {
+                    columns: vec![Column {
+                        name: "__delete_count".to_owned(),
+                        data_type: DataType::UnsignedBigInteger,
+                    }],
+                },
+                child: Box::new(Plan::Filter(FilterPlan {
+                    condition: BoundExpressionAST::Binary(BoundBinaryExpressionAST {
+                        operator: BinaryOperator::Equal,
+                        left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
+                            path: vec!["c1".to_owned()],
+                            data_type: DataType::Integer,
+                            table_index: 0,
+                            column_index: 0,
+                        })),
+                        right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                            data_type: Some(DataType::Integer),
+                        })),
+                    }),
+                    schema: Schema {
+                        columns: vec![
+                            Column {
+                                name: "c1".to_owned(),
+                                data_type: DataType::Integer,
+                            },
+                            Column {
+                                name: "c2".to_owned(),
+                                data_type: DataType::Varchar,
+                            },
+                        ],
+                    },
+                    child: Box::new(Plan::SeqScan(SeqScanPlan {
+                        first_page_id: PageID(3),
+                        schema: Schema {
+                            columns: vec![
+                                Column {
+                                    name: "c1".to_owned(),
+                                    data_type: DataType::Integer,
+                                },
+                                Column {
+                                    name: "c2".to_owned(),
+                                    data_type: DataType::Varchar,
+                                },
+                            ],
+                        },
+                    })),
+                })),
+            })
+        );
+        Ok(())
     }
 }
