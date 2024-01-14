@@ -282,6 +282,7 @@ impl Binder {
     }
 
     fn bind_update(&mut self, statement: &UpdateStatementAST) -> Result<BoundStatementAST> {
+        self.scopes.push(Scope { tables: Vec::new() });
         let table_reference = self.bind_base_table_reference(&statement.table_reference)?;
         let mut assignments = Vec::new();
         for assignment in &statement.assignments {
@@ -505,12 +506,141 @@ impl BoundExpressionAST {
 #[cfg(test)]
 mod tests {
     use crate::{
-        catalog::Column, lexer::tokenize, parser::Parser, test_helpers::setup_test_database,
-        value::IntegerValue,
+        catalog::Column,
+        lexer::tokenize,
+        parser::Parser,
+        test_helpers::setup_test_database,
+        value::{IntegerValue, VarcharValue},
     };
 
     use super::*;
     use anyhow::Result;
+
+    #[test]
+    fn test_bind_select() -> Result<()> {
+        let instance = setup_test_database()?;
+
+        let sql = "select 1, c1 as _c1, _t1.c2, 'a' from t1 as _t1 where c1 = 1";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+        let statement = parser.parse()?;
+
+        let txn_id = instance.begin(None)?;
+        let mut binder = Binder::new(instance.catalog, txn_id);
+        let bound_statement = binder.bind_statement(&statement)?;
+        assert_eq!(
+            bound_statement,
+            BoundStatementAST::Select(BoundSelectStatementAST {
+                select_elements: vec![
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                            data_type: Some(DataType::Integer),
+                        }),
+                        name: "__c0".to_string(),
+                    },
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Path(BoundPathExpressionAST {
+                            path: vec!["c1".to_string()],
+                            table_index: 0,
+                            column_index: 0,
+                            data_type: DataType::Integer,
+                        }),
+                        name: "_c1".to_string(),
+                    },
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Path(BoundPathExpressionAST {
+                            path: vec!["_t1".to_string(), "c2".to_string()],
+                            table_index: 0,
+                            column_index: 1,
+                            data_type: DataType::Varchar,
+                        }),
+                        name: "c2".to_string(),
+                    },
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                            value: Value::Varchar(VarcharValue("a".to_string())),
+                            data_type: Some(DataType::Varchar),
+                        }),
+                        name: "__c1".to_string(),
+                    },
+                ],
+                table_reference: BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
+                    table_name: "t1".to_string(),
+                    alias: Some("_t1".to_string()),
+                    first_page_id: PageID(3),
+                    schema: Schema {
+                        columns: vec![
+                            Column {
+                                name: "c1".to_string(),
+                                data_type: DataType::Integer,
+                            },
+                            Column {
+                                name: "c2".to_string(),
+                                data_type: DataType::Varchar,
+                            },
+                        ],
+                    },
+                }),
+                condition: Some(BoundExpressionAST::Binary(BoundBinaryExpressionAST {
+                    operator: BinaryOperator::Equal,
+                    left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
+                        path: vec!["c1".to_string()],
+                        table_index: 0,
+                        column_index: 0,
+                        data_type: DataType::Integer,
+                    })),
+                    right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                        value: Value::Integer(IntegerValue(1)),
+                        data_type: Some(DataType::Integer),
+                    })),
+                })),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_bind_insert() -> Result<()> {
+        let instance = setup_test_database()?;
+
+        let sql = "insert into t1 values (1, 'foo')";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+        let statement = parser.parse()?;
+
+        let txn_id = instance.begin(None)?;
+        let mut binder = Binder::new(instance.catalog, txn_id);
+        let bound_statement = binder.bind_statement(&statement)?;
+        assert_eq!(
+            bound_statement,
+            BoundStatementAST::Insert(BoundInsertStatementAST {
+                table_name: "t1".to_string(),
+                values: vec![
+                    BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                        value: Value::Integer(IntegerValue(1)),
+                        data_type: Some(DataType::Integer),
+                    }),
+                    BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                        value: Value::Varchar(VarcharValue("foo".to_string())),
+                        data_type: Some(DataType::Varchar),
+                    }),
+                ],
+                first_page_id: PageID(3),
+                table_schema: Schema {
+                    columns: vec![
+                        Column {
+                            name: "c1".to_string(),
+                            data_type: DataType::Integer,
+                        },
+                        Column {
+                            name: "c2".to_string(),
+                            data_type: DataType::Varchar,
+                        },
+                    ],
+                },
+            })
+        );
+        Ok(())
+    }
 
     #[test]
     fn test_bind_delete() -> Result<()> {
@@ -543,6 +673,77 @@ mod tests {
                         ],
                     },
                 },
+                condition: Some(BoundExpressionAST::Binary(BoundBinaryExpressionAST {
+                    operator: BinaryOperator::Equal,
+                    left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
+                        path: vec!["c1".to_string()],
+                        table_index: 0,
+                        column_index: 0,
+                        data_type: DataType::Integer,
+                    })),
+                    right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                        value: Value::Integer(IntegerValue(1)),
+                        data_type: Some(DataType::Integer),
+                    })),
+                })),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_bind_update() -> Result<()> {
+        let instance = setup_test_database()?;
+
+        let sql = "update t1 set c1 = 2, c2 = 'foo' where c1 = 1";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+        let statement = parser.parse()?;
+
+        let txn_id = instance.begin(None)?;
+        let mut binder = Binder::new(instance.catalog, txn_id);
+        let bound_statement = binder.bind_statement(&statement)?;
+        assert_eq!(
+            bound_statement,
+            BoundStatementAST::Update(BoundUpdateStatementAST {
+                table_reference: BoundBaseTableReferenceAST {
+                    table_name: "t1".to_string(),
+                    alias: None,
+                    first_page_id: PageID(3),
+                    schema: Schema {
+                        columns: vec![
+                            Column {
+                                name: "c1".to_string(),
+                                data_type: DataType::Integer,
+                            },
+                            Column {
+                                name: "c2".to_string(),
+                                data_type: DataType::Varchar,
+                            },
+                        ],
+                    },
+                },
+                assignments: vec![
+                    BoundAssignmentAST {
+                        target: PathExpressionAST {
+                            path: vec!["c1".to_string()],
+                        },
+                        value: BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(2)),
+                            data_type: Some(DataType::Integer),
+                        }),
+                        column_index: 0,
+                    },
+                    BoundAssignmentAST {
+                        target: PathExpressionAST {
+                            path: vec!["c2".to_string()],
+                        },
+                        value: BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                            value: Value::Varchar(VarcharValue("foo".to_string())),
+                            data_type: Some(DataType::Varchar),
+                        }),
+                        column_index: 1,
+                    }
+                ],
                 condition: Some(BoundExpressionAST::Binary(BoundBinaryExpressionAST {
                     operator: BinaryOperator::Equal,
                     left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
