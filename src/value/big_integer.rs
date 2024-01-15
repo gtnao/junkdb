@@ -66,3 +66,22 @@ impl BigIntegerValue {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from() {
+        let bytes = vec![255, 255, 255, 255, 77, 47, 162, 0];
+        let value = BigIntegerValue::from(&bytes[..]);
+        assert_eq!(value, BigIntegerValue(-3_000_000_000));
+    }
+
+    #[test]
+    fn test_serialize() {
+        let value = BigIntegerValue(-3_000_000_000);
+        let bytes = value.serialize();
+        assert_eq!(bytes, vec![255, 255, 255, 255, 77, 47, 162, 0].into());
+    }
+}

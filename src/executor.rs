@@ -251,4 +251,108 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_join() -> Result<()> {
+        let instance = setup_test_database()?;
+        let txn_id = instance.begin(None)?;
+
+        let sql = "INSERT INTO t1 VALUES (1, 'foo')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t1 VALUES (2, 'bar')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t1 VALUES (3, 'baz')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t2 VALUES (1, 1, 'hoge')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t2 VALUES (1, 2, 'fuga')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t2 VALUES (3, 3, 'piyo')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t3 VALUES (3, 1, 'aaaa')";
+
+        let sql = "SELECT * FROM t1 INNER JOIN t2 ON t1.c1 = t2.t1_c1";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+        assert_eq!(
+            rows,
+            vec![
+                vec![
+                    Value::Integer(IntegerValue(1)),
+                    Value::Varchar(VarcharValue("foo".to_string())),
+                    Value::Integer(IntegerValue(1)),
+                    Value::Integer(IntegerValue(1)),
+                    Value::Varchar(VarcharValue("hoge".to_string())),
+                ],
+                vec![
+                    Value::Integer(IntegerValue(1)),
+                    Value::Varchar(VarcharValue("foo".to_string())),
+                    Value::Integer(IntegerValue(1)),
+                    Value::Integer(IntegerValue(2)),
+                    Value::Varchar(VarcharValue("fuga".to_string())),
+                ],
+                vec![
+                    Value::Integer(IntegerValue(3)),
+                    Value::Varchar(VarcharValue("baz".to_string())),
+                    Value::Integer(IntegerValue(3)),
+                    Value::Integer(IntegerValue(3)),
+                    Value::Varchar(VarcharValue("piyo".to_string())),
+                ],
+            ]
+        );
+
+        let sql =
+            "SELECT * FROM t1 INNER JOIN t2 ON t1.c1 = t2.t1_c1 INNER JOIN t3 ON t2.c1 = t3.t2_c1";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+        assert_eq!(
+            rows,
+            vec![vec![
+                Value::Integer(IntegerValue(3)),
+                Value::Varchar(VarcharValue("baz".to_string())),
+                Value::Integer(IntegerValue(3)),
+                Value::Integer(IntegerValue(3)),
+                Value::Varchar(VarcharValue("piyo".to_string())),
+                Value::Integer(IntegerValue(3)),
+                Value::Integer(IntegerValue(1)),
+                Value::Varchar(VarcharValue("aaaa".to_string())),
+            ],]
+        );
+
+        // let sql = "SELECT * FROM t1 LEFT JOIN t2 ON t1.c1 = t2.t1_c1";
+        // let (rows, _) = execute(sql, &instance, txn_id)?;
+        // assert_eq!(
+        //     rows,
+        //     vec![
+        //         vec![
+        //             Value::Integer(IntegerValue(1)),
+        //             Value::Varchar(VarcharValue("foo".to_string())),
+        //             Value::Integer(IntegerValue(1)),
+        //             Value::Integer(IntegerValue(1)),
+        //             Value::Varchar(VarcharValue("hoge".to_string())),
+        //         ],
+        //         vec![
+        //             Value::Integer(IntegerValue(1)),
+        //             Value::Varchar(VarcharValue("foo".to_string())),
+        //             Value::Integer(IntegerValue(1)),
+        //             Value::Integer(IntegerValue(2)),
+        //             Value::Varchar(VarcharValue("fuga".to_string())),
+        //         ],
+        //         vec![
+        //             Value::Integer(IntegerValue(2)),
+        //             Value::Varchar(VarcharValue("bar".to_string())),
+        //             Value::Null,
+        //             Value::Null,
+        //             Value::Null,
+        //         ],
+        //         vec![
+        //             Value::Integer(IntegerValue(3)),
+        //             Value::Varchar(VarcharValue("baz".to_string())),
+        //             Value::Integer(IntegerValue(3)),
+        //             Value::Integer(IntegerValue(3)),
+        //             Value::Varchar(VarcharValue("piyo".to_string())),
+        //         ],
+        //     ]
+        // );
+
+        Ok(())
+    }
 }
