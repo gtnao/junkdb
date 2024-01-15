@@ -75,18 +75,17 @@ impl ExecutorEngine {
                 executor_context: &self.context,
             }),
             Plan::NestedLoopJoin(plan) => {
-                let outer_child = self.create_executor(&plan.outer_child);
-                let inner_children = plan
-                    .inner_children
+                let children = plan
+                    .children
                     .iter()
                     .map(|child| Box::new(self.create_executor(child)))
                     .collect::<Vec<_>>();
-                Executor::NestedLoopJoin(nested_loop_join_executor::NestedLoopJoinExecutor {
+                Executor::NestedLoopJoin(NestedLoopJoinExecutor {
                     plan: plan.clone(),
-                    outer_child: Box::new(outer_child),
-                    inner_children,
+                    children,
                     tuples: vec![],
                     executor_context: &self.context,
+                    internal_left_join_statuses: vec![false; plan.children.len() - 1],
                 })
             }
             Plan::Insert(plan) => Executor::Insert(InsertExecutor {
@@ -270,6 +269,7 @@ mod tests {
         let sql = "INSERT INTO t2 VALUES (3, 3, 'piyo')";
         execute(sql, &instance, txn_id)?;
         let sql = "INSERT INTO t3 VALUES (3, 1, 'aaaa')";
+        execute(sql, &instance, txn_id)?;
 
         let sql = "SELECT * FROM t1 INNER JOIN t2 ON t1.c1 = t2.t1_c1";
         let (rows, _) = execute(sql, &instance, txn_id)?;
@@ -317,41 +317,43 @@ mod tests {
             ],]
         );
 
-        // let sql = "SELECT * FROM t1 LEFT JOIN t2 ON t1.c1 = t2.t1_c1";
-        // let (rows, _) = execute(sql, &instance, txn_id)?;
-        // assert_eq!(
-        //     rows,
-        //     vec![
-        //         vec![
-        //             Value::Integer(IntegerValue(1)),
-        //             Value::Varchar(VarcharValue("foo".to_string())),
-        //             Value::Integer(IntegerValue(1)),
-        //             Value::Integer(IntegerValue(1)),
-        //             Value::Varchar(VarcharValue("hoge".to_string())),
-        //         ],
-        //         vec![
-        //             Value::Integer(IntegerValue(1)),
-        //             Value::Varchar(VarcharValue("foo".to_string())),
-        //             Value::Integer(IntegerValue(1)),
-        //             Value::Integer(IntegerValue(2)),
-        //             Value::Varchar(VarcharValue("fuga".to_string())),
-        //         ],
-        //         vec![
-        //             Value::Integer(IntegerValue(2)),
-        //             Value::Varchar(VarcharValue("bar".to_string())),
-        //             Value::Null,
-        //             Value::Null,
-        //             Value::Null,
-        //         ],
-        //         vec![
-        //             Value::Integer(IntegerValue(3)),
-        //             Value::Varchar(VarcharValue("baz".to_string())),
-        //             Value::Integer(IntegerValue(3)),
-        //             Value::Integer(IntegerValue(3)),
-        //             Value::Varchar(VarcharValue("piyo".to_string())),
-        //         ],
-        //     ]
-        // );
+        let sql = "SELECT * FROM t1 LEFT JOIN t2 ON t1.c1 = t2.t1_c1";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+        println!("{:?}", rows);
+        println!("{:?}", rows.len());
+        assert_eq!(
+            rows,
+            vec![
+                vec![
+                    Value::Integer(IntegerValue(1)),
+                    Value::Varchar(VarcharValue("foo".to_string())),
+                    Value::Integer(IntegerValue(1)),
+                    Value::Integer(IntegerValue(1)),
+                    Value::Varchar(VarcharValue("hoge".to_string())),
+                ],
+                vec![
+                    Value::Integer(IntegerValue(1)),
+                    Value::Varchar(VarcharValue("foo".to_string())),
+                    Value::Integer(IntegerValue(1)),
+                    Value::Integer(IntegerValue(2)),
+                    Value::Varchar(VarcharValue("fuga".to_string())),
+                ],
+                vec![
+                    Value::Integer(IntegerValue(2)),
+                    Value::Varchar(VarcharValue("bar".to_string())),
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                ],
+                vec![
+                    Value::Integer(IntegerValue(3)),
+                    Value::Varchar(VarcharValue("baz".to_string())),
+                    Value::Integer(IntegerValue(3)),
+                    Value::Integer(IntegerValue(3)),
+                    Value::Varchar(VarcharValue("piyo".to_string())),
+                ],
+            ]
+        );
 
         Ok(())
     }

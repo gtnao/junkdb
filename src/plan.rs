@@ -53,8 +53,7 @@ pub struct ProjectPlan {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct NestedLoopJoinPlan {
     pub schema: Schema,
-    pub outer_child: Box<Plan>,
-    pub inner_children: Vec<Box<Plan>>,
+    pub children: Vec<Box<Plan>>,
     pub conditions: Vec<Option<BoundExpressionAST>>,
     pub join_types: Vec<JoinType>,
 }
@@ -167,13 +166,11 @@ impl Planner {
         for inner_child in &inner_children {
             schema.columns.extend(inner_child.schema().columns.clone());
         }
+        let mut children = vec![Box::new(outer_child)];
+        children.extend(inner_children.into_iter().map(Box::new));
         Plan::NestedLoopJoin(NestedLoopJoinPlan {
             schema,
-            outer_child: Box::new(outer_child),
-            inner_children: inner_children
-                .into_iter()
-                .map(|plan| Box::new(plan))
-                .collect(),
+            children,
             conditions,
             join_types,
         })
