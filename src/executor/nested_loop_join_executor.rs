@@ -17,7 +17,8 @@ pub struct NestedLoopJoinExecutor<'a> {
     pub tuples: Vec<Option<Tuple>>,
     pub executor_context: &'a ExecutorContext,
     // TODO: other implementation
-    pub internal_left_join_statuses: Vec<bool>,
+    pub matched_statuses: Vec<bool>,
+    pub in_guard_statuses: Vec<bool>,
 }
 
 impl NestedLoopJoinExecutor<'_> {
@@ -50,10 +51,10 @@ impl NestedLoopJoinExecutor<'_> {
             if depth == max_depth {
                 // left join check
                 if self.plan.join_types[depth - 1] == JoinType::Left
-                    && self.internal_left_join_statuses[depth - 1]
+                    && self.in_guard_statuses[depth - 1]
                 {
                     let v = replace(&mut self.tuples[depth], None);
-                    self.internal_left_join_statuses[depth - 1] = false;
+                    self.in_guard_statuses[depth - 1] = false;
                     return Ok(Some(vec![v.unwrap()]));
                 }
 
@@ -79,22 +80,24 @@ impl NestedLoopJoinExecutor<'_> {
                     self.tuples[depth] = self.children[depth].next()?;
 
                     // left join
-                    if self.tuples[depth].is_none() {
-                        if self.plan.join_types[depth - 1] == JoinType::Left {
-                            self.internal_left_join_statuses[depth - 1] = true;
-                            let dummy = Tuple::temp_tuple(&vec![
-                                Value::Null;
-                                self.plan.children[depth]
-                                    .schema()
-                                    .columns
-                                    .len()
-                            ]);
-                            self.tuples[depth] = Some(dummy);
-                        }
+                    if self.tuples[depth].is_none()
+                        && self.plan.join_types[depth - 1] == JoinType::Left
+                        && !self.matched_statuses[depth - 1]
+                    {
+                        self.in_guard_statuses[depth - 1] = true;
+                        let dummy = Tuple::temp_tuple(&vec![
+                            Value::Null;
+                            self.plan.children[depth]
+                                .schema()
+                                .columns
+                                .len()
+                        ]);
+                        self.tuples[depth] = Some(dummy);
                     }
 
                     continue;
                 }
+                self.matched_statuses[depth - 1] = true;
                 // get and update
                 let v = replace(&mut self.tuples[depth], self.children[depth].next()?);
                 if let Some(v) = v {
@@ -105,26 +108,39 @@ impl NestedLoopJoinExecutor<'_> {
             }
 
             // root and internal depth
-
-            // none check(for left join)
-            let none_exist = self.tuples.iter().any(|v| v.is_none());
-            if none_exist {
-                // reset child iterator
-                self.children[depth + 1].init()?;
-                self.tuples[depth + 1] = self.children[depth + 1].next()?;
-                // update self iterator
-                self.tuples[depth] = self.children[depth].next()?;
-                continue;
-            }
-            // condition check(except root)
             if depth != 0 {
+                // left join check
+                if self.plan.join_types[depth - 1] == JoinType::Left
+                    && self.in_guard_statuses[depth - 1]
+                {
+                    let res = self.internal_next(depth + 1)?;
+                    if let Some(mut res) = res {
+                        // child iterator has result
+                        let v = self.tuples[depth].as_ref().unwrap();
+                        res.push(v.clone());
+                        return Ok(Some(res));
+                    } else {
+                        // child iterator has no result
+                        // reset child iterator
+                        self.children[depth + 1].init()?;
+                        self.matched_statuses[depth] = false;
+                        self.tuples[depth + 1] = self.children[depth + 1].next()?;
+                        // update self iterator
+                        self.tuples[depth] = None;
+                        self.in_guard_statuses[depth - 1] = false;
+                        continue;
+                    }
+                }
+
                 let condition_result = self.plan.conditions[depth - 1].as_ref().map_or_else(
                     || true,
                     |condition| {
+                        // for left join dummy tuple
+                        let dummy = Tuple::temp_tuple(&vec![]);
                         let tuples = self
                             .tuples
                             .iter()
-                            .map(|tuple| tuple.as_ref().unwrap())
+                            .map(|tuple| tuple.as_ref().unwrap_or(&dummy))
                             .collect::<Vec<_>>();
                         let schemas = self
                             .plan
@@ -137,8 +153,26 @@ impl NestedLoopJoinExecutor<'_> {
                 );
                 if !condition_result {
                     self.tuples[depth] = self.children[depth].next()?;
+
+                    // left join
+                    if self.tuples[depth].is_none()
+                        && self.plan.join_types[depth - 1] == JoinType::Left
+                        && !self.matched_statuses[depth - 1]
+                    {
+                        self.in_guard_statuses[depth - 1] = true;
+                        let dummy = Tuple::temp_tuple(&vec![
+                            Value::Null;
+                            self.plan.children[depth]
+                                .schema()
+                                .columns
+                                .len()
+                        ]);
+                        self.tuples[depth] = Some(dummy);
+                    }
+
                     continue;
                 }
+                self.matched_statuses[depth - 1] = true;
             }
             let res = self.internal_next(depth + 1)?;
             if let Some(mut res) = res {
@@ -150,6 +184,7 @@ impl NestedLoopJoinExecutor<'_> {
                 // child iterator has no result
                 // reset child iterator
                 self.children[depth + 1].init()?;
+                self.matched_statuses[depth] = false;
                 self.tuples[depth + 1] = self.children[depth + 1].next()?;
                 // update self iterator
                 self.tuples[depth] = self.children[depth].next()?;
