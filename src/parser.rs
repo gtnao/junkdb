@@ -243,35 +243,11 @@ impl Parser {
         match self.tokens[self.position] {
             Token::Keyword(Keyword::Int) => {
                 self.consume_token(Token::Keyword(Keyword::Int));
-                if self.consume_token(Token::Keyword(Keyword::Unsigned)) {
-                    Ok(DataType::UnsignedInteger)
-                } else {
-                    Ok(DataType::Integer)
-                }
+                Ok(DataType::Integer)
             }
             Token::Keyword(Keyword::Integer) => {
                 self.consume_token(Token::Keyword(Keyword::Integer));
-                if self.consume_token(Token::Keyword(Keyword::Unsigned)) {
-                    Ok(DataType::UnsignedInteger)
-                } else {
-                    Ok(DataType::Integer)
-                }
-            }
-            Token::Keyword(Keyword::BigInt) => {
-                self.consume_token(Token::Keyword(Keyword::BigInt));
-                if self.consume_token(Token::Keyword(Keyword::Unsigned)) {
-                    Ok(DataType::UnsignedBigInteger)
-                } else {
-                    Ok(DataType::BigInteger)
-                }
-            }
-            Token::Keyword(Keyword::BigInteger) => {
-                self.consume_token(Token::Keyword(Keyword::BigInteger));
-                if self.consume_token(Token::Keyword(Keyword::Unsigned)) {
-                    Ok(DataType::UnsignedBigInteger)
-                } else {
-                    Ok(DataType::BigInteger)
-                }
+                Ok(DataType::Integer)
             }
             Token::Keyword(Keyword::Varchar) => {
                 self.consume_token(Token::Keyword(Keyword::Varchar));
@@ -740,15 +716,9 @@ mod tests {
         let sql = r#"
             CREATE TABLE users (
                 c0 INT,
-                c1 INT UNSIGNED,
-                c2 INTEGER,
-                c3 INTEGER UNSIGNED,
-                c4 BIGINT,
-                c5 BIGINT UNSIGNED,
-                c6 BIGINTEGER,
-                c7 BIGINTEGER UNSIGNED,
-                c8 VARCHAR,
-                c9 BOOLEAN
+                c1 INTEGER,
+                c2 VARCHAR,
+                c3 BOOLEAN
             );
         "#;
         let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
@@ -765,38 +735,14 @@ mod tests {
                     },
                     TableElementAST {
                         column_name: String::from("c1"),
-                        data_type: DataType::UnsignedInteger,
-                    },
-                    TableElementAST {
-                        column_name: String::from("c2"),
                         data_type: DataType::Integer,
                     },
                     TableElementAST {
-                        column_name: String::from("c3"),
-                        data_type: DataType::UnsignedInteger,
-                    },
-                    TableElementAST {
-                        column_name: String::from("c4"),
-                        data_type: DataType::BigInteger,
-                    },
-                    TableElementAST {
-                        column_name: String::from("c5"),
-                        data_type: DataType::UnsignedBigInteger,
-                    },
-                    TableElementAST {
-                        column_name: String::from("c6"),
-                        data_type: DataType::BigInteger,
-                    },
-                    TableElementAST {
-                        column_name: String::from("c7"),
-                        data_type: DataType::UnsignedBigInteger,
-                    },
-                    TableElementAST {
-                        column_name: String::from("c8"),
+                        column_name: String::from("c2"),
                         data_type: DataType::Varchar,
                     },
                     TableElementAST {
-                        column_name: String::from("c9"),
+                        column_name: String::from("c3"),
                         data_type: DataType::Boolean,
                     },
                 ],

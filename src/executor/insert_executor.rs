@@ -6,7 +6,7 @@ use crate::{
     plan::InsertPlan,
     table::TableHeap,
     tuple::Tuple,
-    value::{unsigned_big_integer::UnsignedBigIntegerValue, Value},
+    value::{integer::IntegerValue, Value},
 };
 
 use super::ExecutorContext;
@@ -15,7 +15,7 @@ pub struct InsertExecutor<'a> {
     pub plan: InsertPlan,
     pub executor_context: &'a ExecutorContext,
     pub table_heap: TableHeap,
-    pub count: u64,
+    pub count: u32,
     pub executed: bool,
 }
 
@@ -43,9 +43,7 @@ impl InsertExecutor<'_> {
         if self.executed {
             return Ok(None);
         }
-        let values = vec![Value::UnsignedBigInteger(UnsignedBigIntegerValue(
-            self.count,
-        ))];
+        let values = vec![Value::Integer(IntegerValue(self.count as i64))];
         let bytes = Tuple::serialize(INVALID_TRANSACTION_ID, INVALID_TRANSACTION_ID, &values);
         self.executed = true;
         Ok(Some(Tuple::new(None, &bytes)))

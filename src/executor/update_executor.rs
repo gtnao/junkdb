@@ -5,7 +5,7 @@ use crate::{
     plan::UpdatePlan,
     table::TableHeap,
     tuple::Tuple,
-    value::{unsigned_big_integer::UnsignedBigIntegerValue, Value},
+    value::{integer::IntegerValue, Value},
 };
 
 use super::{Executor, ExecutorContext};
@@ -15,7 +15,7 @@ pub struct UpdateExecutor<'a> {
     pub child: Box<Executor<'a>>,
     pub executor_context: &'a ExecutorContext,
     pub table_heap: TableHeap,
-    pub count: u64,
+    pub count: u32,
     pub executed: bool,
 }
 
@@ -40,9 +40,7 @@ impl UpdateExecutor<'_> {
         if self.executed {
             return Ok(None);
         }
-        let values = vec![Value::UnsignedBigInteger(UnsignedBigIntegerValue(
-            self.count,
-        ))];
+        let values = vec![Value::Integer(IntegerValue(self.count as i64))];
         let bytes = Tuple::serialize(INVALID_TRANSACTION_ID, INVALID_TRANSACTION_ID, &values);
         self.executed = true;
         Ok(Some(Tuple::new(None, &bytes)))

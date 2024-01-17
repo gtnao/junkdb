@@ -159,7 +159,7 @@ impl Planner {
                         .chain(aggregate_functions.iter().map(|_| Column {
                             name: "__agg".to_string(),
                             // TODO: not use dummy type
-                            data_type: DataType::UnsignedBigInteger,
+                            data_type: DataType::Integer,
                         }))
                         .collect::<Vec<_>>(),
                 },
@@ -280,7 +280,7 @@ impl Planner {
             schema: Schema {
                 columns: vec![Column {
                     name: "__insert_count".to_owned(),
-                    data_type: DataType::UnsignedBigInteger,
+                    data_type: DataType::Integer,
                 }],
             },
         })
@@ -303,7 +303,7 @@ impl Planner {
             schema: Schema {
                 columns: vec![Column {
                     name: "__delete_count".to_owned(),
-                    data_type: DataType::UnsignedBigInteger,
+                    data_type: DataType::Integer,
                 }],
             },
             child: Box::new(plan),
@@ -328,7 +328,7 @@ impl Planner {
             schema: Schema {
                 columns: vec![Column {
                     name: "__update_count".to_owned(),
-                    data_type: DataType::UnsignedBigInteger,
+                    data_type: DataType::Integer,
                 }],
             },
             child: Box::new(plan),
@@ -372,7 +372,7 @@ mod tests {
                 schema: Schema {
                     columns: vec![Column {
                         name: "__delete_count".to_owned(),
-                        data_type: DataType::UnsignedBigInteger,
+                        data_type: DataType::Integer,
                     }],
                 },
                 child: Box::new(Plan::Filter(FilterPlan {

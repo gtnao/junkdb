@@ -10,7 +10,7 @@ use super::{PageType, PAGE_ID_OFFSET, PAGE_ID_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_
 pub const TABLE_PAGE_PAGE_TYPE: PageType = PageType(1);
 
 const NEXT_PAGE_ID_OFFSET: usize = PAGE_ID_OFFSET + PAGE_ID_SIZE;
-const NEXT_PAGE_ID_SIZE: usize = 8;
+const NEXT_PAGE_ID_SIZE: usize = 4;
 const LOWER_OFFSET_OFFSET: usize = NEXT_PAGE_ID_OFFSET + NEXT_PAGE_ID_SIZE;
 const LOWER_OFFSET_SIZE: usize = 4;
 const UPPER_OFFSET_OFFSET: usize = LOWER_OFFSET_OFFSET + LOWER_OFFSET_SIZE;
@@ -90,16 +90,16 @@ impl TablePage {
         (lower_offset as usize - HEADER_SIZE) / LINE_POINTER_SIZE
     }
     pub fn page_id(&self) -> PageID {
-        let mut bytes = [0u8; 8];
+        let mut bytes = [0u8; 4];
         bytes.copy_from_slice(&self.data[PAGE_ID_OFFSET..(PAGE_ID_OFFSET + PAGE_ID_SIZE)]);
-        PageID(u64::from_le_bytes(bytes))
+        PageID(u32::from_le_bytes(bytes))
     }
     pub fn next_page_id(&self) -> PageID {
-        let mut bytes = [0u8; 8];
+        let mut bytes = [0u8; 4];
         bytes.copy_from_slice(
             &self.data[NEXT_PAGE_ID_OFFSET..(NEXT_PAGE_ID_OFFSET + NEXT_PAGE_ID_SIZE)],
         );
-        PageID(u64::from_le_bytes(bytes))
+        PageID(u32::from_le_bytes(bytes))
     }
     pub fn set_next_page_id(&mut self, page_id: PageID) {
         self.data[NEXT_PAGE_ID_OFFSET..(NEXT_PAGE_ID_OFFSET + NEXT_PAGE_ID_SIZE)]

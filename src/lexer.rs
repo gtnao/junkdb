@@ -3,11 +3,7 @@ use std::str::Chars;
 
 use anyhow::{anyhow, Result};
 
-use crate::value::{
-    big_integer::BigIntegerValue, boolean::BooleanValue, integer::IntegerValue,
-    unsigned_big_integer::UnsignedBigIntegerValue, unsigned_integer::UnsignedIntegerValue,
-    varchar::VarcharValue, Value,
-};
+use crate::value::{boolean::BooleanValue, integer::IntegerValue, varchar::VarcharValue, Value};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Token {
@@ -60,9 +56,6 @@ pub enum Keyword {
     Offset,
     Int,
     Integer,
-    BigInt,
-    BigInteger,
-    Unsigned,
     Varchar,
     Boolean,
     Begin,
@@ -103,9 +96,6 @@ impl TryFrom<&str> for Keyword {
             "OFFSET" => Ok(Keyword::Offset),
             "INT" => Ok(Keyword::Int),
             "INTEGER" => Ok(Keyword::Integer),
-            "BIGINT" => Ok(Keyword::BigInt),
-            "BIGINTEGER" => Ok(Keyword::BigInteger),
-            "UNSIGNED" => Ok(Keyword::Unsigned),
             "VARCHAR" => Ok(Keyword::Varchar),
             "BOOLEAN" => Ok(Keyword::Boolean),
             "BEGIN" => Ok(Keyword::Begin),
@@ -212,14 +202,10 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                                 }
                             }
                         }
-                        if let Ok(v) = ret.parse::<i32>() {
+                        if let Ok(v) = ret.parse::<i64>() {
                             tokens.push(Token::Literal(Value::Integer(IntegerValue(-v))));
                         } else {
-                            if let Ok(v) = ret.parse::<i64>() {
-                                tokens.push(Token::Literal(Value::BigInteger(BigIntegerValue(-v))));
-                            } else {
-                                return Err(anyhow!("failed convert: {}", ret));
-                            }
+                            return Err(anyhow!("failed convert: {}", ret));
                         }
                     } else {
                         tokens.push(Token::Minus);
@@ -241,26 +227,10 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                         }
                     }
                 }
-                if let Ok(v) = ret.parse::<i32>() {
+                if let Ok(v) = ret.parse::<i64>() {
                     tokens.push(Token::Literal(Value::Integer(IntegerValue(v))));
                 } else {
-                    if let Ok(v) = ret.parse::<u32>() {
-                        tokens.push(Token::Literal(Value::UnsignedInteger(
-                            UnsignedIntegerValue(v),
-                        )));
-                    } else {
-                        if let Ok(v) = ret.parse::<i64>() {
-                            tokens.push(Token::Literal(Value::BigInteger(BigIntegerValue(v))));
-                        } else {
-                            if let Ok(v) = ret.parse::<u64>() {
-                                tokens.push(Token::Literal(Value::UnsignedBigInteger(
-                                    UnsignedBigIntegerValue(v),
-                                )));
-                            } else {
-                                return Err(anyhow!("failed convert: {}", ret));
-                            }
-                        }
-                    }
+                    return Err(anyhow!("failed convert: {}", ret));
                 }
             }
             Some('\'') => {
@@ -338,7 +308,7 @@ mod tests {
         let text = r#"
             CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET
             SELECT INNER LEFT JOIN ON GROUP BY HAVING ORDER ASC
-            DESC LIMIT OFFSET INT INTEGER BIGINT BIGINTEGER VARCHAR BOOLEAN BEGIN
+            DESC LIMIT OFFSET INT INTEGER VARCHAR BOOLEAN BEGIN
             COMMIT ROLLBACK AS AND OR NOT IS
         "#;
         let mut iter = text.chars().peekable();
@@ -371,8 +341,6 @@ mod tests {
                 Token::Keyword(Keyword::Offset),
                 Token::Keyword(Keyword::Int),
                 Token::Keyword(Keyword::Integer),
-                Token::Keyword(Keyword::BigInt),
-                Token::Keyword(Keyword::BigInteger),
                 Token::Keyword(Keyword::Varchar),
                 Token::Keyword(Keyword::Boolean),
                 Token::Keyword(Keyword::Begin),
@@ -392,7 +360,7 @@ mod tests {
     #[test]
     fn test_all_literals() -> Result<()> {
         let text = r#"
-            1 2345 -1 -2345 -3000000000 3000000000 5000000000 9223372036854775808
+            1 2345 -1 -2345
             'a' 'b\'c' true False NULL
         "#;
         let mut iter = text.chars().peekable();
@@ -404,12 +372,6 @@ mod tests {
                 Token::Literal(Value::Integer(IntegerValue(2345))),
                 Token::Literal(Value::Integer(IntegerValue(-1))),
                 Token::Literal(Value::Integer(IntegerValue(-2345))),
-                Token::Literal(Value::BigInteger(BigIntegerValue(-3000000000))),
-                Token::Literal(Value::UnsignedInteger(UnsignedIntegerValue(3000000000))),
-                Token::Literal(Value::BigInteger(BigIntegerValue(5000000000))),
-                Token::Literal(Value::UnsignedBigInteger(UnsignedBigIntegerValue(
-                    9223372036854775808
-                ))),
                 Token::Literal(Value::Varchar(VarcharValue("a".to_string()))),
                 Token::Literal(Value::Varchar(VarcharValue("b'c".to_string()))),
                 Token::Literal(Value::Boolean(BooleanValue(true))),

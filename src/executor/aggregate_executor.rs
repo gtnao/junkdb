@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::{
     plan::AggregatePlan,
     tuple::Tuple,
-    value::{unsigned_big_integer::UnsignedBigIntegerValue, Value},
+    value::{integer::IntegerValue, Value},
 };
 
 use super::{Executor, ExecutorContext};
@@ -29,7 +29,7 @@ impl AggregateExecutor<'_> {
             }
             for (i, expression) in self.plan.aggregate_functions.iter().enumerate() {
                 let value = match &*expression.function_name {
-                    "COUNT" => Value::UnsignedBigInteger(UnsignedBigIntegerValue(1)),
+                    "COUNT" => Value::Integer(IntegerValue(1)),
                     _ => unimplemented!(),
                 };
                 self.aggregate_table.add(
@@ -107,13 +107,13 @@ impl AggregateTable {
                         let mut sum = 0;
                         for value in values {
                             match value {
-                                Value::UnsignedBigInteger(v) => {
+                                Value::Integer(v) => {
                                     sum += v.0;
                                 }
                                 _ => unimplemented!(),
                             }
                         }
-                        row.push(Value::UnsignedBigInteger(UnsignedBigIntegerValue(sum)));
+                        row.push(Value::Integer(IntegerValue(sum)));
                     }
                     result.push(row);
                 }

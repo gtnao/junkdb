@@ -7,7 +7,7 @@ pub mod table_page;
 const PAGE_TYPE_OFFSET: usize = 0;
 const PAGE_TYPE_SIZE: usize = 4;
 const PAGE_ID_OFFSET: usize = PAGE_TYPE_OFFSET + PAGE_TYPE_SIZE;
-const PAGE_ID_SIZE: usize = 8;
+const PAGE_ID_SIZE: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PageType(pub u32);

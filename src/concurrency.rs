@@ -218,11 +218,11 @@ impl TransactionLog {
 }
 impl From<&[u8]> for TransactionLog {
     fn from(bytes: &[u8]) -> Self {
-        assert!(bytes.len() == 9);
-        let mut txn_id_buffer = [0u8; 8];
-        txn_id_buffer.copy_from_slice(&bytes[0..8]);
-        let txn_id = TransactionID(u64::from_le_bytes(txn_id_buffer));
-        let status = match bytes[8] {
+        assert!(bytes.len() == 5);
+        let mut txn_id_buffer = [0u8; 4];
+        txn_id_buffer.copy_from_slice(&bytes[0..4]);
+        let txn_id = TransactionID(u32::from_le_bytes(txn_id_buffer));
+        let status = match bytes[4] {
             0 => TransactionStatus::Committed,
             1 => TransactionStatus::Aborted,
             _ => unreachable!(),
@@ -249,9 +249,9 @@ impl TransactionLogManager {
         let mut logs = vec![];
         let mut offset = 0;
         while offset < buffer.len() {
-            let log = TransactionLog::from(&buffer[offset..(offset + 9)]);
+            let log = TransactionLog::from(&buffer[offset..(offset + 5)]);
             logs.push(log);
-            offset += 9;
+            offset += 5;
         }
         Ok(logs)
     }

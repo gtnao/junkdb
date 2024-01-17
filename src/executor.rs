@@ -201,10 +201,7 @@ mod tests {
         lexer::tokenize,
         parser::Parser,
         test_helpers::setup_test_database,
-        value::{
-            boolean::BooleanValue, integer::IntegerValue,
-            unsigned_big_integer::UnsignedBigIntegerValue, varchar::VarcharValue, Value,
-        },
+        value::{boolean::BooleanValue, integer::IntegerValue, varchar::VarcharValue, Value},
     };
 
     fn execute(
@@ -458,7 +455,7 @@ mod tests {
             vec![vec![
                 Value::Integer(IntegerValue(3)),
                 Value::Varchar(VarcharValue("piyo".to_string())),
-                Value::UnsignedBigInteger(UnsignedBigIntegerValue(2)),
+                Value::Integer(IntegerValue(2)),
             ]]
         );
         Ok(())

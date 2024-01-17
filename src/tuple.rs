@@ -11,9 +11,9 @@ pub struct Tuple {
 }
 
 const XMIN_OFFSET: usize = 0;
-const XMIN_SIZE: usize = 8;
+const XMIN_SIZE: usize = 4;
 const XMAX_OFFSET: usize = XMIN_OFFSET + XMIN_SIZE;
-const XMAX_SIZE: usize = 8;
+const XMAX_SIZE: usize = 4;
 const HEADER_SIZE: usize = XMAX_OFFSET + XMAX_SIZE;
 
 impl Tuple {
@@ -32,13 +32,13 @@ impl Tuple {
     pub fn xmin(&self) -> TransactionID {
         let mut bytes = [0; XMIN_SIZE];
         bytes.copy_from_slice(&self.data[XMIN_OFFSET..XMIN_OFFSET + XMIN_SIZE]);
-        TransactionID(u64::from_le_bytes(bytes))
+        TransactionID(u32::from_le_bytes(bytes))
     }
 
     pub fn xmax(&self) -> TransactionID {
         let mut bytes = [0; XMAX_SIZE];
         bytes.copy_from_slice(&self.data[XMAX_OFFSET..XMAX_OFFSET + XMAX_SIZE]);
-        TransactionID(u64::from_le_bytes(bytes))
+        TransactionID(u32::from_le_bytes(bytes))
     }
 
     pub fn set_xmax(&mut self, xmax: TransactionID) {

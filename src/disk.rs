@@ -20,7 +20,7 @@ impl DiskManager {
             .create(true)
             .open(data_file_path)?;
         let size = data_file.metadata()?.len();
-        let next_page_id = PageID(size / PAGE_SIZE as u64 + 1);
+        let next_page_id = PageID((size / PAGE_SIZE as u64) as u32 + 1);
         Ok(Self {
             data_file,
             next_page_id,
@@ -28,15 +28,15 @@ impl DiskManager {
     }
     pub fn read_page(&mut self, page_id: PageID, data: &mut [u8]) -> Result<()> {
         assert!(data.len() == PAGE_SIZE as usize);
-        let offset = (page_id.0 - 1) * PAGE_SIZE as u64;
-        self.data_file.seek(SeekFrom::Start(offset as u64))?;
+        let offset = (page_id.0 - 1) as u64 * PAGE_SIZE as u64;
+        self.data_file.seek(SeekFrom::Start(offset))?;
         self.data_file.read_exact(data)?;
         Ok(())
     }
     pub fn write_page(&mut self, page_id: PageID, data: &[u8]) -> Result<()> {
         assert!(data.len() == PAGE_SIZE as usize);
-        let offset = (page_id.0 - 1) * PAGE_SIZE as u64;
-        self.data_file.seek(SeekFrom::Start(offset as u64))?;
+        let offset = (page_id.0 - 1) as u64 * PAGE_SIZE as u64;
+        self.data_file.seek(SeekFrom::Start(offset))?;
         self.data_file.write_all(data)?;
         self.data_file.sync_all()?;
         Ok(())

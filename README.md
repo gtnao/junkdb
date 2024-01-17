@@ -46,7 +46,7 @@ The following shows REPEATABLE READ implemented via snapshot isolation.
 - [ ] Optimizer
   - [ ] Rule-based
 - [ ] Data Type
-  - [x] NUMBER(INT, UNSIGNED INT, BIGINT, UNSIGNED BIGINT), VARCHAR, BOOLEAN
+  - [x] INTEGER, VARCHAR, BOOLEAN
   - [x] NULL
 - [x] Basic SQL Parser
 - [x] CLI

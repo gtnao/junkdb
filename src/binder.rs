@@ -466,9 +466,6 @@ impl Binder {
             value: expression.value.clone(),
             data_type: match expression.value {
                 Value::Integer(_) => Some(DataType::Integer),
-                Value::UnsignedInteger(_) => Some(DataType::UnsignedInteger),
-                Value::BigInteger(_) => Some(DataType::BigInteger),
-                Value::UnsignedBigInteger(_) => Some(DataType::UnsignedBigInteger),
                 Value::Varchar(_) => Some(DataType::Varchar),
                 Value::Boolean(_) => Some(DataType::Boolean),
                 Value::Null => None,
@@ -518,7 +515,7 @@ impl Binder {
                         table_name: "".to_string(),
                         column_name: "".to_string(),
                         // TODO:
-                        data_type: Some(DataType::UnsignedBigInteger),
+                        data_type: Some(DataType::Integer),
                     }));
                 }
             }

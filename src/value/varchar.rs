@@ -1,9 +1,6 @@
 use crate::catalog::DataType;
 
-use super::{
-    big_integer::BigIntegerValue, boolean::BooleanValue, integer::IntegerValue,
-    unsigned_big_integer::UnsignedBigIntegerValue, unsigned_integer::UnsignedIntegerValue, Value,
-};
+use super::{boolean::BooleanValue, integer::IntegerValue, Value};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct VarcharValue(pub String);
@@ -40,24 +37,9 @@ impl VarcharValue {
         match data_type {
             DataType::Integer => self
                 .0
-                .parse::<i32>()
-                .ok()
-                .map(|v| Value::Integer(IntegerValue(v))),
-            DataType::UnsignedInteger => self
-                .0
-                .parse::<u32>()
-                .ok()
-                .map(|v| Value::UnsignedInteger(UnsignedIntegerValue(v))),
-            DataType::BigInteger => self
-                .0
                 .parse::<i64>()
                 .ok()
-                .map(|v| Value::BigInteger(BigIntegerValue(v))),
-            DataType::UnsignedBigInteger => self
-                .0
-                .parse::<u64>()
-                .ok()
-                .map(|v| Value::UnsignedBigInteger(UnsignedBigIntegerValue(v))),
+                .map(|v| Value::Integer(IntegerValue(v))),
             DataType::Varchar => Some(Value::Varchar(self.clone())),
             DataType::Boolean => self
                 .0
