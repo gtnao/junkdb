@@ -19,11 +19,12 @@ The following shows REPEATABLE READ implemented via snapshot isolation.
   - DML
     - [x] CRUD (SELECT, INSERT, DELETE, and UPDATE)
     - [x] Filtering (WHERE)
+    - [x] Subquery
     - [x] Join
       - [x] Nested Loop Join
         - [x] Inner Join
         - [x] Left Join
-    - [ ] Aggregation (GROUP BY and HAVING)
+    - [x] Aggregation (GROUP BY and HAVING)
     - [ ] Sorting (ORDER BY and LIMIT)
   - DDL
     - [x] CREATE TABLE
