@@ -60,7 +60,7 @@ impl NestedLoopJoinExecutor<'_> {
 
                 // condition check
                 let condition_result = self.plan.conditions[depth - 1].as_ref().map_or_else(
-                    || true,
+                    || Ok(true),
                     |condition| {
                         let tuples = self
                             .tuples
@@ -73,9 +73,11 @@ impl NestedLoopJoinExecutor<'_> {
                             .iter()
                             .map(|child| child.schema())
                             .collect::<Vec<_>>();
-                        condition.eval(&tuples, &schemas) == Value::Boolean(BooleanValue(true))
+                        condition
+                            .eval(&tuples, &schemas)
+                            .map(|v| v == Value::Boolean(BooleanValue(true)))
                     },
-                );
+                )?;
                 if !condition_result {
                     self.tuples[depth] = self.children[depth].next()?;
 
@@ -133,7 +135,7 @@ impl NestedLoopJoinExecutor<'_> {
                 }
 
                 let condition_result = self.plan.conditions[depth - 1].as_ref().map_or_else(
-                    || true,
+                    || Ok(true),
                     |condition| {
                         // for left join dummy tuple
                         let dummy = Tuple::temp_tuple(&vec![]);
@@ -148,9 +150,11 @@ impl NestedLoopJoinExecutor<'_> {
                             .iter()
                             .map(|child| child.schema())
                             .collect::<Vec<_>>();
-                        condition.eval(&tuples, &schemas) == Value::Boolean(BooleanValue(true))
+                        condition
+                            .eval(&tuples, &schemas)
+                            .map(|v| v == Value::Boolean(BooleanValue(true)))
                     },
-                );
+                )?;
                 if !condition_result {
                     self.tuples[depth] = self.children[depth].next()?;
 

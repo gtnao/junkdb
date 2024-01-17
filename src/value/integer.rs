@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 use crate::catalog::DataType;
 
 use super::{boolean::BooleanValue, varchar::VarcharValue, Value};
@@ -22,48 +24,66 @@ impl IntegerValue {
         8
     }
 
-    pub fn convert_to(&self, data_type: &DataType) -> Option<Value> {
+    pub fn convert_to(&self, data_type: &DataType) -> Result<Value> {
         match data_type {
-            DataType::Integer => Some(Value::Integer(IntegerValue(self.0))),
-            DataType::Varchar => Some(Value::Varchar(VarcharValue(self.0.to_string()))),
-            DataType::Boolean => Some(Value::Boolean(BooleanValue(self.0 != 0))),
+            DataType::Integer => Ok(Value::Integer(IntegerValue(self.0))),
+            DataType::Varchar => Ok(Value::Varchar(VarcharValue(self.0.to_string()))),
+            DataType::Boolean => Ok(Value::Boolean(BooleanValue(self.0 != 0))),
         }
     }
 
-    pub fn perform_equal(&self, other: &Value) -> bool {
-        match other {
-            Value::Integer(other) => self.0 == other.0,
-            _ => false,
-        }
+    pub fn perform_negate(&self) -> Result<IntegerValue> {
+        self.0.checked_neg().map_or_else(
+            || Err(anyhow::anyhow!("Integer overflow")),
+            |value| Ok(IntegerValue(value)),
+        )
     }
-    pub fn perform_not_equal(&self, other: &Value) -> bool {
-        match other {
-            Value::Integer(other) => self.0 != other.0,
-            _ => true,
-        }
+    pub fn perform_add(&self, other: &IntegerValue) -> Result<IntegerValue> {
+        self.0.checked_add(other.0).map_or_else(
+            || Err(anyhow::anyhow!("Integer overflow")),
+            |value| Ok(IntegerValue(value)),
+        )
     }
-    pub fn perform_less_than(&self, other: &Value) -> bool {
-        match other {
-            Value::Integer(other) => self.0 < other.0,
-            _ => false,
-        }
+    pub fn perform_subtract(&self, other: &IntegerValue) -> Result<IntegerValue> {
+        self.0.checked_sub(other.0).map_or_else(
+            || Err(anyhow::anyhow!("Integer overflow")),
+            |value| Ok(IntegerValue(value)),
+        )
     }
-    pub fn perform_less_than_or_equal(&self, other: &Value) -> bool {
-        match other {
-            Value::Integer(other) => self.0 <= other.0,
-            _ => false,
-        }
+    pub fn perform_multiply(&self, other: &IntegerValue) -> Result<IntegerValue> {
+        self.0.checked_mul(other.0).map_or_else(
+            || Err(anyhow::anyhow!("Integer overflow")),
+            |value| Ok(IntegerValue(value)),
+        )
     }
-    pub fn perform_greater_than(&self, other: &Value) -> bool {
-        match other {
-            Value::Integer(other) => self.0 > other.0,
-            _ => false,
-        }
+    pub fn perform_divide(&self, other: &IntegerValue) -> Result<IntegerValue> {
+        self.0.checked_div(other.0).map_or_else(
+            || Err(anyhow::anyhow!("Integer overflow")),
+            |value| Ok(IntegerValue(value)),
+        )
     }
-    pub fn perform_greater_than_or_equal(&self, other: &Value) -> bool {
-        match other {
-            Value::Integer(other) => self.0 >= other.0,
-            _ => false,
-        }
+    pub fn perform_modulo(&self, other: &IntegerValue) -> Result<IntegerValue> {
+        self.0.checked_rem(other.0).map_or_else(
+            || Err(anyhow::anyhow!("Integer overflow")),
+            |value| Ok(IntegerValue(value)),
+        )
+    }
+    pub fn perform_equal(&self, other: &IntegerValue) -> BooleanValue {
+        BooleanValue(self.0 == other.0)
+    }
+    pub fn perform_not_equal(&self, other: &IntegerValue) -> BooleanValue {
+        BooleanValue(self.0 != other.0)
+    }
+    pub fn perform_less_than(&self, other: &IntegerValue) -> BooleanValue {
+        BooleanValue(self.0 < other.0)
+    }
+    pub fn perform_less_than_or_equal(&self, other: &IntegerValue) -> BooleanValue {
+        BooleanValue(self.0 <= other.0)
+    }
+    pub fn perform_greater_than(&self, other: &IntegerValue) -> BooleanValue {
+        BooleanValue(self.0 > other.0)
+    }
+    pub fn perform_greater_than_or_equal(&self, other: &IntegerValue) -> BooleanValue {
+        BooleanValue(self.0 >= other.0)
     }
 }

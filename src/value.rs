@@ -53,22 +53,242 @@ impl Value {
             DataType::Boolean => Value::Boolean(BooleanValue::from(bytes)),
         }
     }
-    pub fn perform_eq(&self, other: &Self) -> bool {
-        match self {
-            Value::Integer(value) => value.perform_equal(other),
-            Value::Varchar(value) => value.perform_equal(other),
-            Value::Boolean(value) => value.perform_equal(other),
-            Value::Null => false,
-        }
-    }
+
     pub fn convert_to(&self, data_type: &DataType) -> Result<Self> {
         match self {
             Value::Integer(value) => value.convert_to(data_type),
             Value::Varchar(value) => value.convert_to(data_type),
             Value::Boolean(value) => value.convert_to(data_type),
-            Value::Null => Some(Value::Null),
+            Value::Null => Err(anyhow!("Cannot convert NULL to {:?}", data_type)),
         }
-        .ok_or(anyhow!("Cannot convert {:?} to {:?}", self, data_type))
+    }
+
+    // unary operators
+    pub fn perform_is_null(&self) -> Result<Value> {
+        match self {
+            Value::Null => Ok(Value::Boolean(BooleanValue(true))),
+            _ => Ok(Value::Boolean(BooleanValue(false))),
+        }
+    }
+    pub fn perform_is_not_null(&self) -> Result<Value> {
+        match self {
+            Value::Null => Ok(Value::Boolean(BooleanValue(false))),
+            _ => Ok(Value::Boolean(BooleanValue(true))),
+        }
+    }
+    pub fn perform_not(&self) -> Result<Value> {
+        if let Value::Null = self {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Boolean)? {
+            Value::Boolean(value) => Ok(Value::Boolean(value.perform_not())),
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_negate(&self) -> Result<Value> {
+        if self.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => Ok(Value::Integer(value.perform_negate()?)),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn perform_equal(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match (self, other) {
+            (Value::Varchar(value), Value::Varchar(other_value)) => {
+                Ok(Value::Boolean(value.perform_equal(other_value)))
+            }
+            _ => match self.convert_to(&DataType::Integer)? {
+                Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                    Value::Integer(other_value) => {
+                        Ok(Value::Boolean(value.perform_equal(&other_value)))
+                    }
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            },
+        }
+    }
+    pub fn perform_not_equal(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match (self, other) {
+            (Value::Varchar(value), Value::Varchar(other_value)) => {
+                Ok(Value::Boolean(value.perform_not_equal(other_value)))
+            }
+            _ => match self.convert_to(&DataType::Integer)? {
+                Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                    Value::Integer(other_value) => {
+                        Ok(Value::Boolean(value.perform_not_equal(&other_value)))
+                    }
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            },
+        }
+    }
+    pub fn perform_less_than(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                Value::Integer(other_value) => {
+                    Ok(Value::Boolean(value.perform_less_than(&other_value)))
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_less_than_or_equal(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                Value::Integer(other_value) => Ok(Value::Boolean(
+                    value.perform_less_than_or_equal(&other_value),
+                )),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_greater_than(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                Value::Integer(other_value) => {
+                    Ok(Value::Boolean(value.perform_greater_than(&other_value)))
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_greater_than_or_equal(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                Value::Integer(other_value) => Ok(Value::Boolean(
+                    value.perform_greater_than_or_equal(&other_value),
+                )),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    // binary operators
+    pub fn perform_add(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                Value::Integer(other_value) => Ok(Value::Integer(value.perform_add(&other_value)?)),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_subtract(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                Value::Integer(other_value) => {
+                    Ok(Value::Integer(value.perform_subtract(&other_value)?))
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_multiply(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                Value::Integer(other_value) => {
+                    Ok(Value::Integer(value.perform_multiply(&other_value)?))
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_divide(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                Value::Integer(other_value) => {
+                    Ok(Value::Integer(value.perform_divide(&other_value)?))
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_modulo(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Integer)? {
+            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                Value::Integer(other_value) => {
+                    Ok(Value::Integer(value.perform_modulo(&other_value)?))
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_and(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Boolean)? {
+            Value::Boolean(value) => match other.convert_to(&DataType::Boolean)? {
+                Value::Boolean(other_value) => Ok(Value::Boolean(value.perform_and(&other_value))),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+    pub fn perform_or(&self, other: &Value) -> Result<Value> {
+        if self.is_null_value() || other.is_null_value() {
+            return Ok(Value::Null);
+        }
+        match self.convert_to(&DataType::Boolean)? {
+            Value::Boolean(value) => match other.convert_to(&DataType::Boolean)? {
+                Value::Boolean(other_value) => Ok(Value::Boolean(value.perform_or(&other_value))),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn is_null_value(&self) -> bool {
+        match self {
+            Value::Null => true,
+            _ => false,
+        }
     }
 }
 

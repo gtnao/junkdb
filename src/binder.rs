@@ -13,7 +13,7 @@ use crate::{
         UnaryOperator, UpdateStatementAST, AGGREGATE_FUNCTION_NAMES,
     },
     tuple::Tuple,
-    value::{boolean::BooleanValue, Value},
+    value::Value,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -719,26 +719,42 @@ impl Binder {
 }
 
 impl BoundExpressionAST {
-    pub fn eval(&self, tuples: &Vec<&Tuple>, schemas: &Vec<&Schema>) -> Value {
+    pub fn eval(&self, tuples: &Vec<&Tuple>, schemas: &Vec<&Schema>) -> Result<Value> {
         match self {
             BoundExpressionAST::Path(path_expression) => {
                 let tuple = &tuples[path_expression.table_index];
                 let values = tuple.values(schemas[path_expression.table_index]);
-                values[path_expression.column_index].clone()
+                Ok(values[path_expression.column_index].clone())
             }
-            BoundExpressionAST::Literal(literal_expression) => literal_expression.value.clone(),
-            BoundExpressionAST::Unary(_) => {
-                // let operand = unary_expression.operand.eval(tuples, schemas);
-                // TODO:
-                unimplemented!()
+            BoundExpressionAST::Literal(literal_expression) => Ok(literal_expression.value.clone()),
+            BoundExpressionAST::Unary(unary_expression) => {
+                let operand = unary_expression.operand.eval(tuples, schemas)?;
+                match unary_expression.operator {
+                    UnaryOperator::Negate => operand.perform_negate(),
+                    UnaryOperator::Not => operand.perform_not(),
+                    UnaryOperator::IsNull => operand.perform_is_null(),
+                    UnaryOperator::IsNotNull => operand.perform_is_not_null(),
+                }
             }
             BoundExpressionAST::Binary(binary_expression) => {
-                let left = binary_expression.left.eval(tuples, schemas);
-                let right = binary_expression.right.eval(tuples, schemas);
+                let left = binary_expression.left.eval(tuples, schemas)?;
+                let right = binary_expression.right.eval(tuples, schemas)?;
                 match binary_expression.operator {
-                    BinaryOperator::Equal => Value::Boolean(BooleanValue(left.perform_eq(&right))),
-                    // TODO: implement other operators
-                    _ => unimplemented!(),
+                    BinaryOperator::Equal => left.perform_equal(&right),
+                    BinaryOperator::NotEqual => left.perform_not_equal(&right),
+                    BinaryOperator::LessThan => left.perform_less_than(&right),
+                    BinaryOperator::LessThanOrEqual => left.perform_less_than_or_equal(&right),
+                    BinaryOperator::GreaterThan => left.perform_greater_than(&right),
+                    BinaryOperator::GreaterThanOrEqual => {
+                        left.perform_greater_than_or_equal(&right)
+                    }
+                    BinaryOperator::Add => left.perform_add(&right),
+                    BinaryOperator::Subtract => left.perform_subtract(&right),
+                    BinaryOperator::Multiply => left.perform_multiply(&right),
+                    BinaryOperator::Divide => left.perform_divide(&right),
+                    BinaryOperator::Modulo => left.perform_modulo(&right),
+                    BinaryOperator::And => left.perform_and(&right),
+                    BinaryOperator::Or => left.perform_or(&right),
                 }
             }
             // TODO: function call

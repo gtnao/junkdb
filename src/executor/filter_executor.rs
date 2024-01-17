@@ -26,7 +26,7 @@ impl FilterExecutor<'_> {
             if self
                 .plan
                 .condition
-                .eval(&tuples, &vec![&self.plan.child.schema()])
+                .eval(&tuples, &vec![&self.plan.child.schema()])?
                 == Value::Boolean(BooleanValue(true))
             {
                 return Ok(Some(row));

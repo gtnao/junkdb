@@ -130,8 +130,7 @@ pub struct UnaryExpressionAST {
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum UnaryOperator {
-    Plus,
-    Minus,
+    Negate,
     Not,
     IsNull,
     IsNotNull,
@@ -150,11 +149,11 @@ pub enum BinaryOperator {
     LessThanOrEqual,
     GreaterThan,
     GreaterThanOrEqual,
-    Plus,
-    Minus,
-    Asterisk,
-    Slash,
-    Percent,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
     And,
     Or,
 }
@@ -579,9 +578,9 @@ impl Parser {
     fn arithmetic_expression(&mut self) -> Result<ExpressionAST> {
         let left = self.term_expression()?;
         let operator = if self.consume_token(Token::Plus) {
-            BinaryOperator::Plus
+            BinaryOperator::Add
         } else if self.consume_token(Token::Minus) {
-            BinaryOperator::Minus
+            BinaryOperator::Subtract
         } else {
             return Ok(left);
         };
@@ -595,11 +594,11 @@ impl Parser {
     fn term_expression(&mut self) -> Result<ExpressionAST> {
         let left = self.factor_expression()?;
         let operator = if self.consume_token(Token::Asterisk) {
-            BinaryOperator::Asterisk
+            BinaryOperator::Multiply
         } else if self.consume_token(Token::Slash) {
-            BinaryOperator::Slash
+            BinaryOperator::Divide
         } else if self.consume_token(Token::Percent) {
-            BinaryOperator::Percent
+            BinaryOperator::Modulo
         } else {
             return Ok(left);
         };
@@ -620,19 +619,11 @@ impl Parser {
                 let path = self.path_expression()?;
                 Ok(ExpressionAST::Path(path))
             }
-            Token::Plus => {
-                self.consume_token_or_error(Token::Plus)?;
-                let operand = self.factor_expression()?;
-                Ok(ExpressionAST::Unary(UnaryExpressionAST {
-                    operator: UnaryOperator::Plus,
-                    operand: Box::new(operand),
-                }))
-            }
             Token::Minus => {
                 self.consume_token_or_error(Token::Minus)?;
                 let operand = self.factor_expression()?;
                 Ok(ExpressionAST::Unary(UnaryExpressionAST {
-                    operator: UnaryOperator::Minus,
+                    operator: UnaryOperator::Negate,
                     operand: Box::new(operand),
                 }))
             }
@@ -1165,7 +1156,6 @@ mod tests {
               is_deleted AND True,
               is_deleted OR True,
               NOT is_deleted,
-              +age,
               -age,
               COUNT(id),
               foo.bar,
@@ -1186,7 +1176,7 @@ mod tests {
                 assert_eq!(
                     select_statement.select_elements[0].expression,
                     ExpressionAST::Binary(BinaryExpressionAST {
-                        operator: BinaryOperator::Plus,
+                        operator: BinaryOperator::Add,
                         left: Box::new(ExpressionAST::Path(PathExpressionAST {
                             path: vec![String::from("age")],
                         })),
@@ -1198,7 +1188,7 @@ mod tests {
                 assert_eq!(
                     select_statement.select_elements[1].expression,
                     ExpressionAST::Binary(BinaryExpressionAST {
-                        operator: BinaryOperator::Minus,
+                        operator: BinaryOperator::Subtract,
                         left: Box::new(ExpressionAST::Path(PathExpressionAST {
                             path: vec![String::from("age")],
                         })),
@@ -1210,7 +1200,7 @@ mod tests {
                 assert_eq!(
                     select_statement.select_elements[2].expression,
                     ExpressionAST::Binary(BinaryExpressionAST {
-                        operator: BinaryOperator::Asterisk,
+                        operator: BinaryOperator::Multiply,
                         left: Box::new(ExpressionAST::Path(PathExpressionAST {
                             path: vec![String::from("age")],
                         })),
@@ -1222,7 +1212,7 @@ mod tests {
                 assert_eq!(
                     select_statement.select_elements[3].expression,
                     ExpressionAST::Binary(BinaryExpressionAST {
-                        operator: BinaryOperator::Slash,
+                        operator: BinaryOperator::Divide,
                         left: Box::new(ExpressionAST::Path(PathExpressionAST {
                             path: vec![String::from("age")],
                         })),
@@ -1234,7 +1224,7 @@ mod tests {
                 assert_eq!(
                     select_statement.select_elements[4].expression,
                     ExpressionAST::Binary(BinaryExpressionAST {
-                        operator: BinaryOperator::Percent,
+                        operator: BinaryOperator::Modulo,
                         left: Box::new(ExpressionAST::Path(PathExpressionAST {
                             path: vec![String::from("age")],
                         })),
@@ -1351,7 +1341,7 @@ mod tests {
                 assert_eq!(
                     select_statement.select_elements[14].expression,
                     ExpressionAST::Unary(UnaryExpressionAST {
-                        operator: UnaryOperator::Plus,
+                        operator: UnaryOperator::Negate,
                         operand: Box::new(ExpressionAST::Path(PathExpressionAST {
                             path: vec![String::from("age")],
                         })),
@@ -1359,15 +1349,6 @@ mod tests {
                 );
                 assert_eq!(
                     select_statement.select_elements[15].expression,
-                    ExpressionAST::Unary(UnaryExpressionAST {
-                        operator: UnaryOperator::Minus,
-                        operand: Box::new(ExpressionAST::Path(PathExpressionAST {
-                            path: vec![String::from("age")],
-                        })),
-                    })
-                );
-                assert_eq!(
-                    select_statement.select_elements[16].expression,
                     ExpressionAST::FunctionCall(FunctionCallExpressionAST {
                         function_name: String::from("COUNT"),
                         arguments: vec![ExpressionAST::Path(PathExpressionAST {
@@ -1376,41 +1357,41 @@ mod tests {
                     })
                 );
                 assert_eq!(
-                    select_statement.select_elements[17].expression,
+                    select_statement.select_elements[16].expression,
                     ExpressionAST::Path(PathExpressionAST {
                         path: vec![String::from("foo"), String::from("bar")],
                     })
                 );
                 assert_eq!(
-                    select_statement.select_elements[18].expression,
+                    select_statement.select_elements[17].expression,
                     ExpressionAST::Literal(LiteralExpressionAST {
                         value: Value::Integer(IntegerValue(1)),
                     })
                 );
                 assert_eq!(
-                    select_statement.select_elements[19].expression,
+                    select_statement.select_elements[18].expression,
                     ExpressionAST::Literal(LiteralExpressionAST {
                         value: Value::Varchar(VarcharValue(String::from("foo"))),
                     })
                 );
                 assert_eq!(
-                    select_statement.select_elements[20].expression,
+                    select_statement.select_elements[19].expression,
                     ExpressionAST::Literal(LiteralExpressionAST {
                         value: Value::Boolean(BooleanValue(true)),
                     })
                 );
                 assert_eq!(
-                    select_statement.select_elements[21].expression,
+                    select_statement.select_elements[20].expression,
                     ExpressionAST::Literal(LiteralExpressionAST { value: Value::Null })
                 );
                 assert_eq!(
-                    select_statement.select_elements[22].expression,
+                    select_statement.select_elements[21].expression,
                     ExpressionAST::Path(PathExpressionAST {
                         path: vec![String::from("age")],
                     })
                 );
                 assert_eq!(
-                    select_statement.select_elements[23].expression,
+                    select_statement.select_elements[22].expression,
                     ExpressionAST::Unary(UnaryExpressionAST {
                         operator: UnaryOperator::IsNull,
                         operand: Box::new(ExpressionAST::Path(PathExpressionAST {
@@ -1419,7 +1400,7 @@ mod tests {
                     })
                 );
                 assert_eq!(
-                    select_statement.select_elements[24].expression,
+                    select_statement.select_elements[23].expression,
                     ExpressionAST::Unary(UnaryExpressionAST {
                         operator: UnaryOperator::IsNotNull,
                         operand: Box::new(ExpressionAST::Path(PathExpressionAST {

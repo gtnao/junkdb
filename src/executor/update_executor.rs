@@ -28,7 +28,7 @@ impl UpdateExecutor<'_> {
             for assignment in self.plan.assignments.iter() {
                 new_values[assignment.column_index] = assignment
                     .value
-                    .eval(&vec![&row], &vec![&self.plan.child.schema()]);
+                    .eval(&vec![&row], &vec![&self.plan.child.schema()])?;
             }
             self.table_heap.delete(rid)?;
             self.table_heap.insert(&new_values)?;

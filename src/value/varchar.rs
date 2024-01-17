@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 use crate::catalog::DataType;
 
 use super::{boolean::BooleanValue, integer::IntegerValue, Value};
@@ -33,26 +35,18 @@ impl VarcharValue {
         4 + self.0.len()
     }
 
-    pub fn convert_to(&self, data_type: &DataType) -> Option<Value> {
+    pub fn convert_to(&self, data_type: &DataType) -> Result<Value> {
         match data_type {
-            DataType::Integer => self
-                .0
-                .parse::<i64>()
-                .ok()
-                .map(|v| Value::Integer(IntegerValue(v))),
-            DataType::Varchar => Some(Value::Varchar(self.clone())),
-            DataType::Boolean => self
-                .0
-                .parse::<bool>()
-                .ok()
-                .map(|v| Value::Boolean(BooleanValue(v))),
+            DataType::Integer => Ok(Value::Integer(IntegerValue(0))),
+            DataType::Varchar => Ok(Value::Varchar(self.clone())),
+            DataType::Boolean => Ok(Value::Boolean(BooleanValue(false))),
         }
     }
 
-    pub fn perform_equal(&self, other: &Value) -> bool {
-        match other {
-            Value::Varchar(other) => self.0 == other.0,
-            _ => false,
-        }
+    pub fn perform_equal(&self, other: &VarcharValue) -> BooleanValue {
+        BooleanValue(self.0 == other.0)
+    }
+    pub fn perform_not_equal(&self, other: &VarcharValue) -> BooleanValue {
+        BooleanValue(self.0 != other.0)
     }
 }

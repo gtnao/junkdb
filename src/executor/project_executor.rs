@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::{plan::ProjectPlan, tuple::Tuple, value::Value};
+use crate::{plan::ProjectPlan, tuple::Tuple};
 
 use super::{Executor, ExecutorContext};
 
@@ -28,7 +28,7 @@ impl ProjectExecutor<'_> {
                         .expression
                         .eval(&tuples, &vec![&self.plan.child.schema()])
                 })
-                .collect::<Vec<Value>>();
+                .collect::<Result<Vec<_>>>()?;
             return Ok(Some(Tuple::temp_tuple(&values)));
         }
         Ok(None)
