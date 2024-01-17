@@ -25,6 +25,7 @@ The following shows REPEATABLE READ implemented via snapshot isolation.
         - [x] Inner Join
         - [x] Left Join
     - [x] Aggregation (GROUP BY and HAVING)
+      - [x] Functions (COUNT, SUM, MAX, MIN, AVG)
     - [ ] Sorting (ORDER BY and LIMIT)
   - DDL
     - [x] CREATE TABLE
@@ -45,9 +46,13 @@ The following shows REPEATABLE READ implemented via snapshot isolation.
   - [x] LRU
 - [ ] Optimizer
   - [ ] Rule-based
-- [ ] Data Type
+- [x] Data Types
   - [x] INTEGER, VARCHAR, BOOLEAN
   - [x] NULL
+- [x] Operators
+  - [x] Binary (=, <>, <, >, <=, >=, +, -, \*, /, %, AND, OR)
+  - [x] UNARY (-, NOT)
+  - [x] IS NULL, IS NOT NULL
 - [x] Basic SQL Parser
 - [x] CLI
 
