@@ -26,7 +26,7 @@ The following shows REPEATABLE READ implemented via snapshot isolation.
         - [x] Left Join
     - [x] Aggregation (GROUP BY and HAVING)
       - [x] Functions (COUNT, SUM, MAX, MIN, AVG)
-    - [ ] Sorting (ORDER BY and LIMIT)
+    - [x] Sorting (ORDER BY and LIMIT)
   - DDL
     - [x] CREATE TABLE
 - Transactions:
