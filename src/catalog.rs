@@ -52,12 +52,6 @@ impl From<DataType> for i64 {
         }
     }
 }
-impl DataType {
-    pub fn convert_with(&self, other: Self) -> Self {
-        // TODO: refactor
-        DataType::Integer
-    }
-}
 
 pub struct Catalog {
     buffer_pool_manager: Arc<Mutex<BufferPoolManager>>,

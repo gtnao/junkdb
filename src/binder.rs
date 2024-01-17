@@ -8,9 +8,9 @@ use crate::{
     parser::{
         BaseTableReferenceAST, BinaryExpressionAST, BinaryOperator, DeleteStatementAST,
         ExpressionAST, FunctionCallExpressionAST, InsertStatementAST, JoinTableReferenceAST,
-        JoinType, LiteralExpressionAST, PathExpressionAST, SelectElementAST, SelectStatementAST,
-        StatementAST, SubqueryTableReferenceAST, TableReferenceAST, UnaryExpressionAST,
-        UnaryOperator, UpdateStatementAST, AGGREGATE_FUNCTION_NAMES,
+        JoinType, LiteralExpressionAST, Order, PathExpressionAST, SelectElementAST,
+        SelectStatementAST, StatementAST, SubqueryTableReferenceAST, TableReferenceAST,
+        UnaryExpressionAST, UnaryOperator, UpdateStatementAST, AGGREGATE_FUNCTION_NAMES,
     },
     tuple::Tuple,
     value::Value,
@@ -31,11 +31,23 @@ pub struct BoundSelectStatementAST {
     pub group_by: Vec<BoundExpressionAST>,
     pub aggregate_functions: Vec<BoundExpressionAST>,
     pub having: Option<BoundExpressionAST>,
+    pub order_by: Option<Vec<BoundOrderByElementAST>>,
+    pub limit: Option<BoundLimitAST>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundSelectElementAST {
     pub expression: BoundExpressionAST,
     pub name: String,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BoundOrderByElementAST {
+    pub expression: BoundExpressionAST,
+    pub order: Order,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BoundLimitAST {
+    pub count: BoundExpressionAST,
+    pub offset: BoundExpressionAST,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BoundTableReferenceAST {
@@ -231,6 +243,43 @@ impl Binder {
             };
             select_elements.push(BoundSelectElementAST { expression, name });
         }
+        if select_elements.len() > 0 {
+            let scopes_len = self.scopes.len();
+            self.scopes[scopes_len - 1].tables.clear();
+            self.scopes[scopes_len - 1].aggregation = None;
+            self.scopes[scopes_len - 1].tables.push(ScopeTable {
+                table_name: "".to_string(),
+                alias: None,
+                columns: select_elements
+                    .iter()
+                    .map(|element| ScopeColumn {
+                        column_name: element.name.clone(),
+                        data_type: element.expression.data_type(),
+                    })
+                    .collect::<Vec<_>>(),
+            });
+        }
+        let order_by = match &statement.order_by {
+            Some(order_by) => Some(
+                order_by
+                    .iter()
+                    .map(|element| {
+                        Ok(BoundOrderByElementAST {
+                            expression: self.bind_expression(&element.expression)?,
+                            order: element.order.clone(),
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+            None => None,
+        };
+        let limit = match &statement.limit {
+            Some(limit) => Some(BoundLimitAST {
+                count: self.bind_expression(&limit.count)?,
+                offset: self.bind_expression(&limit.offset)?,
+            }),
+            None => None,
+        };
         self.scopes.pop();
         Ok(BoundSelectStatementAST {
             select_elements,
@@ -239,6 +288,8 @@ impl Binder {
             group_by,
             aggregate_functions: bound_aggregate_functions,
             having,
+            order_by,
+            limit,
         })
     }
 
@@ -766,22 +817,27 @@ impl BoundExpressionAST {
         match self {
             BoundExpressionAST::Path(path_expression) => path_expression.data_type.clone(),
             BoundExpressionAST::Literal(literal_expression) => literal_expression.data_type.clone(),
-            BoundExpressionAST::Unary(unary_expression) => unary_expression.operand.data_type(),
-            BoundExpressionAST::Binary(binary_expression) => {
-                if binary_expression.operator == BinaryOperator::Equal {
-                    return Some(DataType::Boolean);
-                }
-                let left = binary_expression.left.data_type();
-                let right = binary_expression.right.data_type();
-                if left.is_none() || right.is_none() {
-                    return None;
-                }
-                if left == right {
-                    left
-                } else {
-                    Some(left.unwrap().convert_with(right.unwrap()))
-                }
-            }
+            BoundExpressionAST::Unary(unary_expression) => match unary_expression.operator {
+                UnaryOperator::Negate => Some(DataType::Integer),
+                UnaryOperator::Not => Some(DataType::Boolean),
+                UnaryOperator::IsNull => Some(DataType::Boolean),
+                UnaryOperator::IsNotNull => Some(DataType::Boolean),
+            },
+            BoundExpressionAST::Binary(binary_expression) => match binary_expression.operator {
+                BinaryOperator::Equal
+                | BinaryOperator::NotEqual
+                | BinaryOperator::LessThan
+                | BinaryOperator::LessThanOrEqual
+                | BinaryOperator::GreaterThan
+                | BinaryOperator::GreaterThanOrEqual
+                | BinaryOperator::And
+                | BinaryOperator::Or => Some(DataType::Boolean),
+                BinaryOperator::Add
+                | BinaryOperator::Subtract
+                | BinaryOperator::Multiply
+                | BinaryOperator::Divide
+                | BinaryOperator::Modulo => Some(DataType::Integer),
+            },
             // TODO: function call
             _ => unimplemented!(),
         }
@@ -890,6 +946,8 @@ mod tests {
                 group_by: Vec::new(),
                 aggregate_functions: Vec::new(),
                 having: None,
+                order_by: None,
+                limit: None,
             })
         );
         Ok(())
@@ -999,6 +1057,8 @@ mod tests {
                 group_by: Vec::new(),
                 aggregate_functions: Vec::new(),
                 having: None,
+                order_by: None,
+                limit: None,
             })
         );
         Ok(())
@@ -1112,6 +1172,8 @@ mod tests {
                             group_by: Vec::new(),
                             aggregate_functions: Vec::new(),
                             having: None,
+                            order_by: None,
+                            limit: None,
                         },
                         alias: "sub1".to_string(),
                         schema: Schema {
@@ -1136,6 +1198,8 @@ mod tests {
                 group_by: Vec::new(),
                 aggregate_functions: Vec::new(),
                 having: None,
+                order_by: None,
+                limit: None,
             })
         );
         Ok(())

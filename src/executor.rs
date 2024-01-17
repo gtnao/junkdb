@@ -13,9 +13,11 @@ use self::{
     delete_executor::DeleteExecutor,
     filter_executor::FilterExecutor,
     insert_executor::InsertExecutor,
+    limit_executor::LimitExecutor,
     nested_loop_join_executor::NestedLoopJoinExecutor,
     project_executor::ProjectExecutor,
     seq_scan_executor::SeqScanExecutor,
+    sort_executor::SortExecutor,
     update_executor::UpdateExecutor,
 };
 
@@ -23,9 +25,11 @@ mod aggregate_executor;
 mod delete_executor;
 mod filter_executor;
 mod insert_executor;
+mod limit_executor;
 mod nested_loop_join_executor;
 mod project_executor;
 mod seq_scan_executor;
+mod sort_executor;
 mod update_executor;
 
 pub struct ExecutorContext {
@@ -108,6 +112,20 @@ impl ExecutorEngine {
                     index: 0,
                 })
             }
+            Plan::Sort(plan) => Executor::Sort(SortExecutor {
+                plan: plan.clone(),
+                child: Box::new(self.create_executor(&plan.child)),
+                executor_context: &self.context,
+                result: vec![],
+                cursor: 0,
+            }),
+            Plan::Limit(plan) => Executor::Limit(limit_executor::LimitExecutor {
+                plan: plan.clone(),
+                child: Box::new(self.create_executor(&plan.child)),
+                executor_context: &self.context,
+                result: vec![],
+                cursor: 0,
+            }),
             Plan::Insert(plan) => Executor::Insert(InsertExecutor {
                 plan: plan.clone(),
                 executor_context: &self.context,
@@ -159,6 +177,8 @@ pub enum Executor<'a> {
     Project(ProjectExecutor<'a>),
     NestedLoopJoin(NestedLoopJoinExecutor<'a>),
     Aggregate(AggregateExecutor<'a>),
+    Sort(SortExecutor<'a>),
+    Limit(LimitExecutor<'a>),
     Insert(InsertExecutor<'a>),
     Delete(DeleteExecutor<'a>),
     Update(UpdateExecutor<'a>),
@@ -171,6 +191,8 @@ impl Executor<'_> {
             Executor::Project(executor) => executor.init(),
             Executor::NestedLoopJoin(executor) => executor.init(),
             Executor::Aggregate(executor) => executor.init(),
+            Executor::Sort(executor) => executor.init(),
+            Executor::Limit(executor) => executor.init(),
             Executor::Insert(executor) => executor.init(),
             Executor::Delete(executor) => executor.init(),
             Executor::Update(executor) => executor.init(),
@@ -183,6 +205,8 @@ impl Executor<'_> {
             Executor::Project(executor) => executor.next(),
             Executor::NestedLoopJoin(executor) => executor.next(),
             Executor::Aggregate(executor) => executor.next(),
+            Executor::Sort(executor) => executor.next(),
+            Executor::Limit(executor) => executor.next(),
             Executor::Insert(executor) => executor.next(),
             Executor::Delete(executor) => executor.next(),
             Executor::Update(executor) => executor.next(),

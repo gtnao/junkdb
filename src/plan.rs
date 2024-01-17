@@ -2,9 +2,9 @@ use crate::{
     binder::{
         BoundAssignmentAST, BoundBaseTableReferenceAST, BoundDeleteStatementAST,
         BoundExpressionAST, BoundFunctionCallExpressionAST, BoundInsertStatementAST,
-        BoundJoinTableReferenceAST, BoundSelectElementAST, BoundSelectStatementAST,
-        BoundStatementAST, BoundSubqueryTableReferenceAST, BoundTableReferenceAST,
-        BoundUpdateStatementAST,
+        BoundJoinTableReferenceAST, BoundLimitAST, BoundOrderByElementAST, BoundSelectElementAST,
+        BoundSelectStatementAST, BoundStatementAST, BoundSubqueryTableReferenceAST,
+        BoundTableReferenceAST, BoundUpdateStatementAST,
     },
     catalog::{Column, DataType, Schema},
     common::PageID,
@@ -18,6 +18,8 @@ pub enum Plan {
     Project(ProjectPlan),
     NestedLoopJoin(NestedLoopJoinPlan),
     Aggregate(AggregatePlan),
+    Sort(SortPlan),
+    Limit(LimitPlan),
     Insert(InsertPlan),
     Delete(DeletePlan),
     Update(UpdatePlan),
@@ -30,6 +32,8 @@ impl Plan {
             Plan::Project(plan) => &plan.schema,
             Plan::NestedLoopJoin(plan) => &plan.schema,
             Plan::Aggregate(plan) => &plan.schema,
+            Plan::Sort(plan) => &plan.schema,
+            Plan::Limit(plan) => &plan.schema,
             Plan::Insert(plan) => &plan.schema,
             Plan::Delete(plan) => &plan.schema,
             Plan::Update(plan) => &plan.schema,
@@ -66,6 +70,18 @@ pub struct AggregatePlan {
     pub child: Box<Plan>,
     pub group_by: Vec<BoundExpressionAST>,
     pub aggregate_functions: Vec<BoundFunctionCallExpressionAST>,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SortPlan {
+    pub order_by: Vec<BoundOrderByElementAST>,
+    pub schema: Schema,
+    pub child: Box<Plan>,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct LimitPlan {
+    pub limit: BoundLimitAST,
+    pub schema: Schema,
+    pub child: Box<Plan>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InsertPlan {
@@ -192,6 +208,20 @@ impl Planner {
                         })
                         .collect(),
                 },
+                child: Box::new(plan),
+            });
+        }
+        if let Some(order_by) = &select_statement.order_by {
+            plan = Plan::Sort(SortPlan {
+                order_by: order_by.clone(),
+                schema: plan.schema().clone(),
+                child: Box::new(plan),
+            });
+        }
+        if let Some(limit) = &select_statement.limit {
+            plan = Plan::Limit(LimitPlan {
+                limit: limit.clone(),
+                schema: plan.schema().clone(),
                 child: Box::new(plan),
             });
         }

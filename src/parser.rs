@@ -72,7 +72,7 @@ pub struct SubqueryTableReferenceAST {
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OrderByElementAST {
-    pub expression: PathExpressionAST,
+    pub expression: ExpressionAST,
     pub order: Order,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -410,7 +410,7 @@ impl Parser {
         }
     }
     fn order_by_element(&mut self) -> Result<OrderByElementAST> {
-        let expression = self.path_expression()?;
+        let expression = self.expression()?;
         let order = if self.consume_token(Token::Keyword(Keyword::Asc)) {
             Order::Asc
         } else if self.consume_token(Token::Keyword(Keyword::Desc)) {
@@ -797,15 +797,15 @@ mod tests {
                 having: None,
                 order_by: Some(vec![
                     OrderByElementAST {
-                        expression: PathExpressionAST {
+                        expression: ExpressionAST::Path(PathExpressionAST {
                             path: vec![String::from("id")],
-                        },
+                        }),
                         order: Order::Desc,
                     },
                     OrderByElementAST {
-                        expression: PathExpressionAST {
+                        expression: ExpressionAST::Path(PathExpressionAST {
                             path: vec![String::from("name")],
-                        },
+                        }),
                         order: Order::Asc,
                     },
                 ]),
