@@ -32,7 +32,7 @@ pub struct SelectStatementAST {
     pub select_elements: Vec<SelectElementAST>,
     pub table_reference: TableReferenceAST,
     pub condition: Option<ExpressionAST>,
-    pub group_by: Option<Vec<PathExpressionAST>>,
+    pub group_by: Option<Vec<ExpressionAST>>,
     pub having: Option<ExpressionAST>,
     pub order_by: Option<Vec<OrderByElementAST>>,
     pub limit: Option<LimitAST>,
@@ -163,6 +163,7 @@ pub struct FunctionCallExpressionAST {
     pub function_name: String,
     pub arguments: Vec<ExpressionAST>,
 }
+pub const AGGREGATE_FUNCTION_NAMES: [&str; 5] = ["COUNT", "SUM", "AVG", "MIN", "MAX"];
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Parser {
@@ -308,7 +309,7 @@ impl Parser {
             self.consume_token_or_error(Token::Keyword(Keyword::By))?;
             let mut group_by = Vec::new();
             loop {
-                group_by.push(self.path_expression()?);
+                group_by.push(self.expression()?);
                 if !self.consume_token(Token::Comma) {
                     break;
                 }
@@ -593,7 +594,7 @@ impl Parser {
             }
             self.consume_token_or_error(Token::RightParen)?;
             return Ok(ExpressionAST::FunctionCall(FunctionCallExpressionAST {
-                function_name,
+                function_name: function_name.to_uppercase(),
                 arguments,
             }));
         }
@@ -929,12 +930,12 @@ mod tests {
                 }),
                 condition: None,
                 group_by: Some(vec![
-                    PathExpressionAST {
+                    ExpressionAST::Path(PathExpressionAST {
                         path: vec![String::from("id")],
-                    },
-                    PathExpressionAST {
+                    }),
+                    ExpressionAST::Path(PathExpressionAST {
                         path: vec![String::from("name")],
-                    },
+                    }),
                 ]),
                 having: Some(ExpressionAST::Binary(BinaryExpressionAST {
                     operator: BinaryOperator::Equal,

@@ -9,12 +9,17 @@ use crate::{
 };
 
 use self::{
-    delete_executor::DeleteExecutor, filter_executor::FilterExecutor,
-    insert_executor::InsertExecutor, nested_loop_join_executor::NestedLoopJoinExecutor,
-    project_executor::ProjectExecutor, seq_scan_executor::SeqScanExecutor,
+    aggregate_executor::{AggregateExecutor, AggregateTable},
+    delete_executor::DeleteExecutor,
+    filter_executor::FilterExecutor,
+    insert_executor::InsertExecutor,
+    nested_loop_join_executor::NestedLoopJoinExecutor,
+    project_executor::ProjectExecutor,
+    seq_scan_executor::SeqScanExecutor,
     update_executor::UpdateExecutor,
 };
 
+mod aggregate_executor;
 mod delete_executor;
 mod filter_executor;
 mod insert_executor;
@@ -89,6 +94,20 @@ impl ExecutorEngine {
                     in_guard_statuses: vec![false; plan.children.len() - 1],
                 })
             }
+            Plan::Aggregate(plan) => {
+                let mut aggregate_tables = vec![];
+                for _ in 0..plan.aggregate_functions.len() {
+                    aggregate_tables.push(AggregateTable::new());
+                }
+                Executor::Aggregate(AggregateExecutor {
+                    plan: plan.clone(),
+                    child: Box::new(self.create_executor(&plan.child)),
+                    executor_context: &self.context,
+                    aggregate_table: AggregateTable::new(),
+                    result: vec![],
+                    index: 0,
+                })
+            }
             Plan::Insert(plan) => Executor::Insert(InsertExecutor {
                 plan: plan.clone(),
                 executor_context: &self.context,
@@ -139,6 +158,7 @@ pub enum Executor<'a> {
     Filter(FilterExecutor<'a>),
     Project(ProjectExecutor<'a>),
     NestedLoopJoin(NestedLoopJoinExecutor<'a>),
+    Aggregate(AggregateExecutor<'a>),
     Insert(InsertExecutor<'a>),
     Delete(DeleteExecutor<'a>),
     Update(UpdateExecutor<'a>),
@@ -150,6 +170,7 @@ impl Executor<'_> {
             Executor::Filter(executor) => executor.init(),
             Executor::Project(executor) => executor.init(),
             Executor::NestedLoopJoin(executor) => executor.init(),
+            Executor::Aggregate(executor) => executor.init(),
             Executor::Insert(executor) => executor.init(),
             Executor::Delete(executor) => executor.init(),
             Executor::Update(executor) => executor.init(),
@@ -161,6 +182,7 @@ impl Executor<'_> {
             Executor::Filter(executor) => executor.next(),
             Executor::Project(executor) => executor.next(),
             Executor::NestedLoopJoin(executor) => executor.next(),
+            Executor::Aggregate(executor) => executor.next(),
             Executor::Insert(executor) => executor.next(),
             Executor::Delete(executor) => executor.next(),
             Executor::Update(executor) => executor.next(),
@@ -179,7 +201,10 @@ mod tests {
         lexer::tokenize,
         parser::Parser,
         test_helpers::setup_test_database,
-        value::{boolean::BooleanValue, integer::IntegerValue, varchar::VarcharValue, Value},
+        value::{
+            boolean::BooleanValue, integer::IntegerValue,
+            unsigned_big_integer::UnsignedBigIntegerValue, varchar::VarcharValue, Value,
+        },
     };
 
     fn execute(
@@ -403,6 +428,39 @@ mod tests {
             ]
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_aggregate() -> Result<()> {
+        let instance = setup_test_database()?;
+        let txn_id = instance.begin(None)?;
+
+        let sql = "INSERT INTO t2 VALUES (1, 1, 'hoge')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t2 VALUES (1, 2, 'hoge')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t2 VALUES (1, 3, 'fuga')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t2 VALUES (1, 4, 'hoge')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t2 VALUES (3, 5, 'piyo')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t2 VALUES (3, 6, 'hoge')";
+        execute(sql, &instance, txn_id)?;
+        let sql = "INSERT INTO t2 VALUES (3, 6, 'piyo')";
+        execute(sql, &instance, txn_id)?;
+
+        let sql = "SELECT t1_c1, c2, COUNT(1) FROM t2 GROUP BY t1_c1, c2 HAVING COUNT(1) = 2";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+        assert_eq!(
+            rows,
+            vec![vec![
+                Value::Integer(IntegerValue(3)),
+                Value::Varchar(VarcharValue("piyo".to_string())),
+                Value::UnsignedBigInteger(UnsignedBigIntegerValue(2)),
+            ]]
+        );
         Ok(())
     }
 }

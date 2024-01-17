@@ -1,9 +1,10 @@
 use crate::{
     binder::{
         BoundAssignmentAST, BoundBaseTableReferenceAST, BoundDeleteStatementAST,
-        BoundExpressionAST, BoundInsertStatementAST, BoundJoinTableReferenceAST,
-        BoundSelectElementAST, BoundSelectStatementAST, BoundStatementAST,
-        BoundSubqueryTableReferenceAST, BoundTableReferenceAST, BoundUpdateStatementAST,
+        BoundExpressionAST, BoundFunctionCallExpressionAST, BoundInsertStatementAST,
+        BoundJoinTableReferenceAST, BoundSelectElementAST, BoundSelectStatementAST,
+        BoundStatementAST, BoundSubqueryTableReferenceAST, BoundTableReferenceAST,
+        BoundUpdateStatementAST,
     },
     catalog::{Column, DataType, Schema},
     common::PageID,
@@ -16,6 +17,7 @@ pub enum Plan {
     Filter(FilterPlan),
     Project(ProjectPlan),
     NestedLoopJoin(NestedLoopJoinPlan),
+    Aggregate(AggregatePlan),
     Insert(InsertPlan),
     Delete(DeletePlan),
     Update(UpdatePlan),
@@ -27,6 +29,7 @@ impl Plan {
             Plan::Filter(plan) => &plan.schema,
             Plan::Project(plan) => &plan.schema,
             Plan::NestedLoopJoin(plan) => &plan.schema,
+            Plan::Aggregate(plan) => &plan.schema,
             Plan::Insert(plan) => &plan.schema,
             Plan::Delete(plan) => &plan.schema,
             Plan::Update(plan) => &plan.schema,
@@ -56,6 +59,13 @@ pub struct NestedLoopJoinPlan {
     pub children: Vec<Box<Plan>>,
     pub conditions: Vec<Option<BoundExpressionAST>>,
     pub join_types: Vec<JoinType>,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct AggregatePlan {
+    pub schema: Schema,
+    pub child: Box<Plan>,
+    pub group_by: Vec<BoundExpressionAST>,
+    pub aggregate_functions: Vec<BoundFunctionCallExpressionAST>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InsertPlan {
@@ -106,6 +116,61 @@ impl Planner {
         if let Some(condition) = &select_statement.condition {
             plan = Plan::Filter(FilterPlan {
                 condition: condition.clone(),
+                schema: plan.schema().clone(),
+                child: Box::new(plan),
+            });
+        }
+        if !select_statement.group_by.is_empty() || !select_statement.aggregate_functions.is_empty()
+        {
+            let aggregate_functions = select_statement
+                .aggregate_functions
+                .clone()
+                .into_iter()
+                .map(|expression| {
+                    if let BoundExpressionAST::FunctionCall(expression) = expression {
+                        BoundFunctionCallExpressionAST {
+                            function_name: expression.function_name,
+                            arguments: expression.arguments,
+                        }
+                    } else {
+                        unreachable!()
+                    }
+                })
+                .collect::<Vec<_>>();
+            plan = Plan::Aggregate(AggregatePlan {
+                schema: Schema {
+                    columns: select_statement
+                        .group_by
+                        .iter()
+                        .map(|expression| {
+                            if let BoundExpressionAST::Path(path_expression) = expression {
+                                Column {
+                                    name: path_expression.column_name.clone(),
+                                    data_type: path_expression
+                                        .data_type
+                                        .clone()
+                                        // TODO: not use dummy type
+                                        .unwrap_or(DataType::Boolean),
+                                }
+                            } else {
+                                unreachable!()
+                            }
+                        })
+                        .chain(aggregate_functions.iter().map(|_| Column {
+                            name: "__agg".to_string(),
+                            // TODO: not use dummy type
+                            data_type: DataType::UnsignedBigInteger,
+                        }))
+                        .collect::<Vec<_>>(),
+                },
+                child: Box::new(plan),
+                group_by: select_statement.group_by.clone(),
+                aggregate_functions: aggregate_functions.clone(),
+            });
+        }
+        if let Some(having) = &select_statement.having {
+            plan = Plan::Filter(FilterPlan {
+                condition: having.clone(),
                 schema: plan.schema().clone(),
                 child: Box::new(plan),
             });
@@ -318,6 +383,8 @@ mod tests {
                             data_type: Some(DataType::Integer),
                             table_index: 0,
                             column_index: 0,
+                            table_name: "t1".to_owned(),
+                            column_name: "c1".to_owned(),
                         })),
                         right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
                             value: Value::Integer(IntegerValue(1)),

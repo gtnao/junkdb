@@ -8,9 +8,9 @@ use crate::{
     parser::{
         BaseTableReferenceAST, BinaryExpressionAST, BinaryOperator, DeleteStatementAST,
         ExpressionAST, FunctionCallExpressionAST, InsertStatementAST, JoinTableReferenceAST,
-        JoinType, LiteralExpressionAST, PathExpressionAST, SelectStatementAST, StatementAST,
-        SubqueryTableReferenceAST, TableReferenceAST, UnaryExpressionAST, UnaryOperator,
-        UpdateStatementAST,
+        JoinType, LiteralExpressionAST, PathExpressionAST, SelectElementAST, SelectStatementAST,
+        StatementAST, SubqueryTableReferenceAST, TableReferenceAST, UnaryExpressionAST,
+        UnaryOperator, UpdateStatementAST, AGGREGATE_FUNCTION_NAMES,
     },
     tuple::Tuple,
     value::{boolean::BooleanValue, Value},
@@ -28,6 +28,9 @@ pub struct BoundSelectStatementAST {
     pub select_elements: Vec<BoundSelectElementAST>,
     pub table_reference: Box<BoundTableReferenceAST>,
     pub condition: Option<BoundExpressionAST>,
+    pub group_by: Vec<BoundExpressionAST>,
+    pub aggregate_functions: Vec<BoundExpressionAST>,
+    pub having: Option<BoundExpressionAST>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundSelectElementAST {
@@ -97,6 +100,8 @@ pub struct BoundPathExpressionAST {
     pub path: Vec<String>,
     pub table_index: usize,
     pub column_index: usize,
+    pub table_name: String,
+    pub column_name: String,
     pub data_type: Option<DataType>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -130,8 +135,18 @@ struct ScopeColumn {
     column_name: String,
     data_type: Option<DataType>,
 }
+struct ScopeAggregation {
+    group_by: Vec<ScopeAggregationGroupByItem>,
+    aggregate_functions: Vec<FunctionCallExpressionAST>,
+}
+struct ScopeAggregationGroupByItem {
+    table_name: String,
+    column_name: String,
+    data_type: Option<DataType>,
+}
 struct Scope {
     tables: Vec<ScopeTable>,
+    aggregation: Option<ScopeAggregation>,
 }
 pub struct Binder {
     catalog: Arc<Mutex<Catalog>>,
@@ -161,8 +176,37 @@ impl Binder {
     }
 
     fn bind_select(&mut self, statement: &SelectStatementAST) -> Result<BoundSelectStatementAST> {
-        self.scopes.push(Scope { tables: Vec::new() });
+        self.scopes.push(Scope {
+            tables: Vec::new(),
+            aggregation: None,
+        });
         let table_reference = self.bind_table_reference(&statement.table_reference)?;
+        let condition = match &statement.condition {
+            Some(condition) => Some(self.bind_expression(condition)?),
+            None => None,
+        };
+
+        let group_by = match &statement.group_by {
+            Some(group_by) => group_by
+                .iter()
+                .map(|expression| self.bind_expression(expression))
+                .collect::<Result<Vec<_>>>()?,
+            None => vec![],
+        };
+        let aggregate_functions =
+            self.extract_aggregate_functions(&statement.having, &statement.select_elements)?;
+        let bound_aggregate_functions = aggregate_functions
+            .iter()
+            .map(|function| self.bind_function_call_expression(function))
+            .collect::<Result<Vec<_>>>()?;
+        let needs_aggregation = group_by.len() > 0 || bound_aggregate_functions.len() > 0;
+        if needs_aggregation {
+            self.replace_scope_by_aggregation(&group_by, &aggregate_functions);
+        }
+        let having = match &statement.having {
+            Some(having) => Some(self.bind_expression(having)?),
+            None => None,
+        };
         let mut select_elements = Vec::new();
         let mut unknown_count = 0;
         for element in &statement.select_elements {
@@ -187,15 +231,14 @@ impl Binder {
             };
             select_elements.push(BoundSelectElementAST { expression, name });
         }
-        let condition = match &statement.condition {
-            Some(condition) => Some(self.bind_expression(condition)?),
-            None => None,
-        };
         self.scopes.pop();
         Ok(BoundSelectStatementAST {
             select_elements,
             table_reference: Box::new(table_reference),
             condition,
+            group_by,
+            aggregate_functions: bound_aggregate_functions,
+            having,
         })
     }
 
@@ -343,7 +386,10 @@ impl Binder {
     }
 
     fn bind_delete(&mut self, statement: &DeleteStatementAST) -> Result<BoundStatementAST> {
-        self.scopes.push(Scope { tables: Vec::new() });
+        self.scopes.push(Scope {
+            tables: Vec::new(),
+            aggregation: None,
+        });
         let table_reference = self.bind_base_table_reference(&statement.table_reference)?;
         let condition = match &statement.condition {
             Some(condition) => Some(self.bind_expression(condition)?),
@@ -356,12 +402,15 @@ impl Binder {
     }
 
     fn bind_update(&mut self, statement: &UpdateStatementAST) -> Result<BoundStatementAST> {
-        self.scopes.push(Scope { tables: Vec::new() });
+        self.scopes.push(Scope {
+            tables: Vec::new(),
+            aggregation: None,
+        });
         let table_reference = self.bind_base_table_reference(&statement.table_reference)?;
         let mut assignments = Vec::new();
         for assignment in &statement.assignments {
             let value = self.bind_expression(&assignment.value)?;
-            let (_, column_index, _) = self.resolve_path_expression(&PathExpressionAST {
+            let (_, column_index, _, _, _) = self.resolve_path_expression(&PathExpressionAST {
                 path: assignment.target.path.clone(),
             })?;
             assignments.push(BoundAssignmentAST {
@@ -397,11 +446,14 @@ impl Binder {
         &mut self,
         expression: &PathExpressionAST,
     ) -> Result<BoundExpressionAST> {
-        let (table_index, column_index, data_type) = self.resolve_path_expression(expression)?;
+        let (table_index, column_index, table_name, column_name, data_type) =
+            self.resolve_path_expression(expression)?;
         Ok(BoundExpressionAST::Path(BoundPathExpressionAST {
             path: expression.path.clone(),
             table_index,
             column_index,
+            table_name,
+            column_name,
             data_type,
         }))
     }
@@ -452,6 +504,25 @@ impl Binder {
         &mut self,
         expression: &FunctionCallExpressionAST,
     ) -> Result<BoundExpressionAST> {
+        let scope = self
+            .scopes
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("no scope"))?;
+        if let Some(aggregation) = &scope.aggregation {
+            for (i, function) in aggregation.aggregate_functions.iter().enumerate() {
+                if function == expression {
+                    return Ok(BoundExpressionAST::Path(BoundPathExpressionAST {
+                        path: vec![format!("__agg{}", i)],
+                        table_index: 0,
+                        column_index: aggregation.group_by.len() + i,
+                        table_name: "".to_string(),
+                        column_name: "".to_string(),
+                        // TODO:
+                        data_type: Some(DataType::UnsignedBigInteger),
+                    }));
+                }
+            }
+        }
         let mut arguments = Vec::new();
         for argument in &expression.arguments {
             arguments.push(self.bind_expression(argument)?);
@@ -467,16 +538,61 @@ impl Binder {
     fn resolve_path_expression(
         &mut self,
         expression: &PathExpressionAST,
-    ) -> Result<(usize, usize, Option<DataType>)> {
+    ) -> Result<(usize, usize, String, String, Option<DataType>)> {
         let scope = self
             .scopes
             .last()
             .ok_or_else(|| anyhow::anyhow!("no scope"))?;
+
+        if let Some(aggregation) = &scope.aggregation {
+            if expression.path.len() == 1 {
+                for (i, group_by) in aggregation.group_by.iter().enumerate() {
+                    if group_by.column_name == expression.path[0] {
+                        return Ok((
+                            0,
+                            i,
+                            group_by.table_name.clone(),
+                            group_by.column_name.clone(),
+                            group_by.data_type.clone(),
+                        ));
+                    }
+                }
+                return Err(anyhow::anyhow!("column {} not found", expression.path[0]));
+            } else if expression.path.len() == 2 {
+                for (i, group_by) in aggregation.group_by.iter().enumerate() {
+                    if group_by.table_name == expression.path[0]
+                        && group_by.column_name == expression.path[1]
+                    {
+                        return Ok((
+                            0,
+                            i,
+                            group_by.table_name.clone(),
+                            group_by.column_name.clone(),
+                            group_by.data_type.clone(),
+                        ));
+                    }
+                }
+                return Err(anyhow::anyhow!(
+                    "column {}.{} not found",
+                    expression.path[0],
+                    expression.path[1]
+                ));
+            } else {
+                return Err(anyhow::anyhow!("path expression length must be 1 or 2"));
+            }
+        }
+
         if expression.path.len() == 1 {
             for (i, table) in scope.tables.iter().enumerate() {
                 for (j, column) in table.columns.iter().enumerate() {
                     if column.column_name == expression.path[0] {
-                        return Ok((i, j, column.data_type.clone()));
+                        return Ok((
+                            i,
+                            j,
+                            table.table_name.clone(),
+                            column.column_name.clone(),
+                            column.data_type.clone(),
+                        ));
                     }
                 }
             }
@@ -511,7 +627,13 @@ impl Binder {
                 .enumerate()
             {
                 if column.column_name == expression.path[1] {
-                    return Ok((matched_table_indexes[0], i, column.data_type.clone()));
+                    return Ok((
+                        matched_table_indexes[0],
+                        i,
+                        scope.tables[matched_table_indexes[0]].table_name.clone(),
+                        column.column_name.clone(),
+                        column.data_type.clone(),
+                    ));
                 }
             }
             Err(anyhow::anyhow!(
@@ -522,6 +644,80 @@ impl Binder {
         } else {
             Err(anyhow::anyhow!("path expression length must be 1 or 2"))
         }
+    }
+
+    fn extract_aggregate_functions(
+        &mut self,
+        having: &Option<ExpressionAST>,
+        select_elements: &Vec<SelectElementAST>,
+    ) -> Result<Vec<FunctionCallExpressionAST>> {
+        let mut aggregate_functions = Vec::new();
+        if let Some(having) = having {
+            let mut functions = self.extract_aggregate_functions_from_expression(having)?;
+            aggregate_functions.append(&mut functions);
+        }
+        for select_element in select_elements {
+            let mut functions =
+                self.extract_aggregate_functions_from_expression(&select_element.expression)?;
+            aggregate_functions.append(&mut functions);
+        }
+        Ok(aggregate_functions)
+    }
+
+    fn extract_aggregate_functions_from_expression(
+        &mut self,
+        expression: &ExpressionAST,
+    ) -> Result<Vec<FunctionCallExpressionAST>> {
+        match expression {
+            ExpressionAST::FunctionCall(expression) => {
+                if AGGREGATE_FUNCTION_NAMES.contains(&expression.function_name.as_str()) {
+                    Ok(vec![expression.clone()])
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+            ExpressionAST::Path(_) => Ok(Vec::new()),
+            ExpressionAST::Literal(_) => Ok(Vec::new()),
+            ExpressionAST::Unary(expression) => {
+                self.extract_aggregate_functions_from_expression(&expression.operand)
+            }
+            ExpressionAST::Binary(expression) => {
+                let mut left =
+                    self.extract_aggregate_functions_from_expression(&expression.left)?;
+                let mut right =
+                    self.extract_aggregate_functions_from_expression(&expression.right)?;
+                left.append(&mut right);
+                Ok(left)
+            }
+        }
+    }
+
+    fn replace_scope_by_aggregation(
+        &mut self,
+        group_by: &Vec<BoundExpressionAST>,
+        aggregate_functions: &Vec<FunctionCallExpressionAST>,
+    ) {
+        let mut group_by_items = Vec::new();
+        for expression in group_by {
+            if let BoundExpressionAST::Path(path_expression) = expression {
+                group_by_items.push(ScopeAggregationGroupByItem {
+                    table_name: path_expression.table_name.clone(),
+                    column_name: path_expression.column_name.clone(),
+                    data_type: path_expression.data_type.clone(),
+                });
+            } else {
+                unimplemented!();
+            }
+        }
+        let aggregation = ScopeAggregation {
+            group_by: group_by_items,
+            aggregate_functions: aggregate_functions.clone(),
+        };
+        self.scopes
+            .last_mut()
+            .unwrap()
+            .aggregation
+            .replace(aggregation);
     }
 }
 
@@ -619,6 +815,8 @@ mod tests {
                             path: vec!["c1".to_string()],
                             table_index: 0,
                             column_index: 0,
+                            table_name: "t1".to_string(),
+                            column_name: "c1".to_string(),
                             data_type: Some(DataType::Integer),
                         }),
                         name: "_c1".to_string(),
@@ -628,6 +826,8 @@ mod tests {
                             path: vec!["_t1".to_string(), "c2".to_string()],
                             table_index: 0,
                             column_index: 1,
+                            table_name: "t1".to_string(),
+                            column_name: "c2".to_string(),
                             data_type: Some(DataType::Varchar),
                         }),
                         name: "c2".to_string(),
@@ -665,6 +865,8 @@ mod tests {
                         path: vec!["c1".to_string()],
                         table_index: 0,
                         column_index: 0,
+                        table_name: "t1".to_string(),
+                        column_name: "c1".to_string(),
                         data_type: Some(DataType::Integer),
                     })),
                     right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
@@ -672,6 +874,9 @@ mod tests {
                         data_type: Some(DataType::Integer),
                     })),
                 })),
+                group_by: Vec::new(),
+                aggregate_functions: Vec::new(),
+                having: None,
             })
         );
         Ok(())
@@ -697,6 +902,8 @@ mod tests {
                             path: vec!["t1".to_string(), "c1".to_string()],
                             table_index: 0,
                             column_index: 0,
+                            table_name: "t1".to_string(),
+                            column_name: "c1".to_string(),
                             data_type: Some(DataType::Integer),
                         }),
                         name: "c1".to_string(),
@@ -706,6 +913,8 @@ mod tests {
                             path: vec!["_t2".to_string(), "c1".to_string()],
                             table_index: 1,
                             column_index: 1,
+                            table_name: "t2".to_string(),
+                            column_name: "c1".to_string(),
                             data_type: Some(DataType::Integer),
                         }),
                         name: "c1".to_string(),
@@ -757,12 +966,16 @@ mod tests {
                                 path: vec!["t1".to_string(), "c1".to_string()],
                                 table_index: 0,
                                 column_index: 0,
+                                table_name: "t1".to_string(),
+                                column_name: "c1".to_string(),
                                 data_type: Some(DataType::Integer),
                             })),
                             right: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
                                 path: vec!["_t2".to_string(), "t1_c1".to_string()],
                                 table_index: 1,
                                 column_index: 0,
+                                table_name: "t2".to_string(),
+                                column_name: "t1_c1".to_string(),
                                 data_type: Some(DataType::Integer),
                             })),
                         })),
@@ -770,6 +983,9 @@ mod tests {
                     }
                 )),
                 condition: None,
+                group_by: Vec::new(),
+                aggregate_functions: Vec::new(),
+                having: None,
             })
         );
         Ok(())
@@ -806,6 +1022,8 @@ mod tests {
                             path: vec!["sub1".to_string(), "c1".to_string()],
                             table_index: 0,
                             column_index: 1,
+                            table_name: "sub1".to_string(),
+                            column_name: "c1".to_string(),
                             data_type: Some(DataType::Integer),
                         }),
                         name: "c1".to_string(),
@@ -815,6 +1033,8 @@ mod tests {
                             path: vec!["literal1".to_string()],
                             table_index: 0,
                             column_index: 0,
+                            table_name: "sub1".to_string(),
+                            column_name: "literal1".to_string(),
                             data_type: Some(DataType::Varchar),
                         }),
                         name: "literal1".to_string(),
@@ -838,6 +1058,8 @@ mod tests {
                                         path: vec!["c1".to_string()],
                                         table_index: 0,
                                         column_index: 0,
+                                        table_name: "t1".to_string(),
+                                        column_name: "c1".to_string(),
                                         data_type: Some(DataType::Integer),
                                     }),
                                     name: "c1".to_string(),
@@ -847,6 +1069,8 @@ mod tests {
                                         path: vec!["c2".to_string()],
                                         table_index: 0,
                                         column_index: 1,
+                                        table_name: "t1".to_string(),
+                                        column_name: "c2".to_string(),
                                         data_type: Some(DataType::Varchar),
                                     }),
                                     name: "c2".to_string(),
@@ -872,6 +1096,9 @@ mod tests {
                                 }
                             )),
                             condition: None,
+                            group_by: Vec::new(),
+                            aggregate_functions: Vec::new(),
+                            having: None,
                         },
                         alias: "sub1".to_string(),
                         schema: Schema {
@@ -893,6 +1120,9 @@ mod tests {
                     }
                 )),
                 condition: None,
+                group_by: Vec::new(),
+                aggregate_functions: Vec::new(),
+                having: None,
             })
         );
         Ok(())
@@ -978,6 +1208,8 @@ mod tests {
                         path: vec!["c1".to_string()],
                         table_index: 0,
                         column_index: 0,
+                        table_name: "t1".to_string(),
+                        column_name: "c1".to_string(),
                         data_type: Some(DataType::Integer),
                     })),
                     right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
@@ -1049,6 +1281,8 @@ mod tests {
                         path: vec!["c1".to_string()],
                         table_index: 0,
                         column_index: 0,
+                        table_name: "t1".to_string(),
+                        column_name: "c1".to_string(),
                         data_type: Some(DataType::Integer),
                     })),
                     right: Box::new(BoundExpressionAST::Literal(BoundLiteralExpressionAST {
