@@ -1,4 +1,4 @@
-[![Test](https://github.com/gtnao0219/toydb/actions/workflows/test.yml/badge.svg)](https://github.com/gtnao0219/junkdb/actions/workflows/test.yml)
+[![Test](https://github.com/gtnao0219/junkdb/actions/workflows/test.yml/badge.svg)](https://github.com/gtnao0219/junkdb/actions/workflows/test.yml)
 
 ![junkdb (1)](https://github.com/gtnao0219/toydb/assets/25474324/d2025f88-06f4-4ed8-a3f3-39b910163de5)
 
