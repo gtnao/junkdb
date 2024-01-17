@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub fn server_start(init: bool) -> Result<()> {
-    println!("toydb server started");
+    println!("junkdb server started");
 
     // init
     let instance = Arc::new(RwLock::new(Instance::new("data", init)?));
@@ -26,7 +26,7 @@ pub fn server_start(init: bool) -> Result<()> {
     let mut signals = Signals::new(TERM_SIGNALS)?;
     thread::spawn(move || {
         for _ in signals.forever() {
-            println!("toydb server shutdown...");
+            println!("junkdb server shutdown...");
             if let Ok(instance) = instance_clone.read() {
                 if let Err(e) = instance.shutdown() {
                     println!("shutdown error: {}", e);

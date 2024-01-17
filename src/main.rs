@@ -1,7 +1,7 @@
 use std::process;
 
 use anyhow::Result;
-use toydb::{client::client_start, server::server_start};
+use junkdb::{client::client_start, server::server_start};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
