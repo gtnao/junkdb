@@ -561,10 +561,14 @@ impl Parser {
             let function_name = self.identifier()?;
             self.consume_token_or_error(Token::LeftParen)?;
             let mut arguments = Vec::new();
-            loop {
-                arguments.push(self.expression()?);
-                if !self.consume_token(Token::Comma) {
-                    break;
+            if function_name.to_uppercase() == "COUNT" && self.match_token(Token::Asterisk) {
+                self.consume_token_or_error(Token::Asterisk)?;
+            } else if !self.match_token(Token::RightParen) {
+                loop {
+                    arguments.push(self.expression()?);
+                    if !self.consume_token(Token::Comma) {
+                        break;
+                    }
                 }
             }
             self.consume_token_or_error(Token::RightParen)?;
