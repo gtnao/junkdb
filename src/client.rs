@@ -1,19 +1,25 @@
 use anyhow::Result;
 use dialoguer::{theme::ColorfulTheme, BasicHistory, Input};
-use std::{
-    io::{Read, Write},
-    net::TcpStream,
-    process,
-};
+use std::{net::TcpStream, process};
+
+use crate::server::{read_from_stream, write_to_stream};
 
 pub fn client_start() -> Result<()> {
     println!("connecting to junkdb server...");
     let mut stream = TcpStream::connect("127.0.0.1:7878")?;
     println!("connected!");
+    let ascii = r#"
+     ██╗██╗   ██╗███╗   ██╗██╗  ██╗██████╗ ██████╗
+     ██║██║   ██║████╗  ██║██║ ██╔╝██╔══██╗██╔══██╗
+     ██║██║   ██║██╔██╗ ██║█████╔╝ ██║  ██║██████╔╝
+██   ██║██║   ██║██║╚██╗██║██╔═██╗ ██║  ██║██╔══██╗
+╚█████╔╝╚██████╔╝██║ ╚████║██║  ██╗██████╔╝██████╔╝
+ ╚════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝╚═════╝ ╚═════╝
+    "#;
+    println!("{}", ascii);
     println!("Welcome to junkdb!");
     println!("Type \"exit\" or \"quit\" to exit.");
-
-    let mut history = BasicHistory::new().max_entries(8).no_duplicates(true);
+    let mut history = BasicHistory::new().max_entries(100).no_duplicates(true);
     loop {
         if let Ok(cmd) = Input::<String>::with_theme(&ColorfulTheme::default())
             .with_prompt("Query")
@@ -21,18 +27,11 @@ pub fn client_start() -> Result<()> {
             .interact_text()
         {
             if cmd == "exit" || cmd == "quit" {
+                println!("Bye!");
                 process::exit(0);
             }
-
-            stream.write(&(cmd.len() as u32).to_be_bytes())?;
-            stream.write(cmd.as_bytes())?;
-            stream.flush()?;
-
-            let mut size_buffer = [0u8; 4];
-            stream.read_exact(&mut size_buffer)?;
-            let mut buffer = vec![0u8; u32::from_be_bytes(size_buffer) as usize];
-            stream.read_exact(&mut buffer)?;
-            let response = String::from_utf8(buffer)?;
+            write_to_stream(&mut stream, &cmd)?;
+            let response = read_from_stream(&mut stream)?;
             println!("{}", response);
         }
     }
