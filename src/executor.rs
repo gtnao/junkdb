@@ -9,7 +9,7 @@ use crate::{
 };
 
 use self::{
-    aggregate_executor::{AggregateExecutor, AggregateTable},
+    aggregate_executor::{AggregateExecutor, AggregateTable, AggregateTableValue},
     delete_executor::DeleteExecutor,
     filter_executor::FilterExecutor,
     insert_executor::InsertExecutor,
@@ -107,7 +107,11 @@ impl ExecutorEngine {
                     plan: plan.clone(),
                     child: Box::new(self.create_executor(&plan.child)),
                     executor_context: &self.context,
-                    aggregate_table: AggregateTable::new(),
+                    aggregate_table_value: if plan.group_by.len() == 0 {
+                        AggregateTableValue::Value(vec![vec![]; plan.aggregate_functions.len()])
+                    } else {
+                        AggregateTableValue::Table(AggregateTable::new())
+                    },
                     result: vec![],
                     index: 0,
                 })
