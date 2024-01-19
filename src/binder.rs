@@ -26,7 +26,7 @@ pub enum BoundStatementAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundSelectStatementAST {
     pub select_elements: Vec<BoundSelectElementAST>,
-    pub table_reference: Box<BoundTableReferenceAST>,
+    pub table_reference: Option<Box<BoundTableReferenceAST>>,
     pub condition: Option<BoundExpressionAST>,
     pub group_by: Vec<BoundExpressionAST>,
     pub aggregate_functions: Vec<BoundExpressionAST>,
@@ -192,7 +192,22 @@ impl Binder {
             tables: Vec::new(),
             aggregation: None,
         });
-        let table_reference = self.bind_table_reference(&statement.table_reference)?;
+        if statement.table_reference.is_none() {
+            return Ok(BoundSelectStatementAST {
+                select_elements: self.bind_select_elements(&statement.select_elements)?,
+                table_reference: None,
+                condition: None,
+                group_by: vec![],
+                aggregate_functions: vec![],
+                having: None,
+                order_by: None,
+                limit: None,
+            });
+        }
+        let table_reference = match &statement.table_reference {
+            Some(table_reference) => self.bind_table_reference(table_reference)?,
+            None => unreachable!("unreachable table_reference"),
+        };
         let condition = match &statement.condition {
             Some(condition) => Some(self.bind_expression(condition)?),
             None => None,
@@ -219,30 +234,7 @@ impl Binder {
             Some(having) => Some(self.bind_expression(having)?),
             None => None,
         };
-        let mut select_elements = Vec::new();
-        let mut unknown_count = 0;
-        for element in &statement.select_elements {
-            let expression = self.bind_expression(&element.expression)?;
-            let name = match &element.alias {
-                Some(alias) => alias.clone(),
-                None => {
-                    if let BoundExpressionAST::Path(path_expression) = &expression {
-                        path_expression
-                            .path
-                            .last()
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("path expression must have at least one element")
-                            })?
-                            .clone()
-                    } else {
-                        let c = format!("__c{}", unknown_count);
-                        unknown_count += 1;
-                        c
-                    }
-                }
-            };
-            select_elements.push(BoundSelectElementAST { expression, name });
-        }
+        let select_elements = self.bind_select_elements(&statement.select_elements)?;
         if select_elements.len() > 0 {
             let scopes_len = self.scopes.len();
             self.scopes[scopes_len - 1].tables.clear();
@@ -283,7 +275,7 @@ impl Binder {
         self.scopes.pop();
         Ok(BoundSelectStatementAST {
             select_elements,
-            table_reference: Box::new(table_reference),
+            table_reference: Some(Box::new(table_reference)),
             condition,
             group_by,
             aggregate_functions: bound_aggregate_functions,
@@ -291,6 +283,37 @@ impl Binder {
             order_by,
             limit,
         })
+    }
+
+    fn bind_select_elements(
+        &mut self,
+        select_elements: &Vec<SelectElementAST>,
+    ) -> Result<Vec<BoundSelectElementAST>> {
+        let mut res = Vec::new();
+        let mut unknown_count = 0;
+        for element in select_elements {
+            let expression = self.bind_expression(&element.expression)?;
+            let name = match &element.alias {
+                Some(alias) => alias.clone(),
+                None => {
+                    if let BoundExpressionAST::Path(path_expression) = &expression {
+                        path_expression
+                            .path
+                            .last()
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("path expression must have at least one element")
+                            })?
+                            .clone()
+                    } else {
+                        let c = format!("__c{}", unknown_count);
+                        unknown_count += 1;
+                        c
+                    }
+                }
+            };
+            res.push(BoundSelectElementAST { expression, name });
+        }
+        Ok(res)
     }
 
     fn bind_table_reference(
@@ -909,7 +932,7 @@ mod tests {
                         name: "__c1".to_string(),
                     },
                 ],
-                table_reference: Box::new(BoundTableReferenceAST::Base(
+                table_reference: Some(Box::new(BoundTableReferenceAST::Base(
                     BoundBaseTableReferenceAST {
                         table_name: "t1".to_string(),
                         alias: Some("_t1".to_string()),
@@ -927,7 +950,7 @@ mod tests {
                             ],
                         },
                     }
-                )),
+                ))),
                 condition: Some(BoundExpressionAST::Binary(BoundBinaryExpressionAST {
                     operator: BinaryOperator::Equal,
                     left: Box::new(BoundExpressionAST::Path(BoundPathExpressionAST {
@@ -991,7 +1014,7 @@ mod tests {
                         name: "c1".to_string(),
                     },
                 ],
-                table_reference: Box::new(BoundTableReferenceAST::Join(
+                table_reference: Some(Box::new(BoundTableReferenceAST::Join(
                     BoundJoinTableReferenceAST {
                         left: Box::new(BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
                             table_name: "t1".to_string(),
@@ -1052,7 +1075,7 @@ mod tests {
                         })),
                         join_type: JoinType::Inner,
                     }
-                )),
+                ))),
                 condition: None,
                 group_by: Vec::new(),
                 aggregate_functions: Vec::new(),
@@ -1113,7 +1136,7 @@ mod tests {
                         name: "literal1".to_string(),
                     },
                 ],
-                table_reference: Box::new(BoundTableReferenceAST::Subquery(
+                table_reference: Some(Box::new(BoundTableReferenceAST::Subquery(
                     BoundSubqueryTableReferenceAST {
                         select_statement: BoundSelectStatementAST {
                             select_elements: vec![
@@ -1149,7 +1172,7 @@ mod tests {
                                     name: "c2".to_string(),
                                 },
                             ],
-                            table_reference: Box::new(BoundTableReferenceAST::Base(
+                            table_reference: Some(Box::new(BoundTableReferenceAST::Base(
                                 BoundBaseTableReferenceAST {
                                     table_name: "t1".to_string(),
                                     alias: None,
@@ -1167,7 +1190,7 @@ mod tests {
                                         ],
                                     },
                                 }
-                            )),
+                            ))),
                             condition: None,
                             group_by: Vec::new(),
                             aggregate_functions: Vec::new(),
@@ -1193,7 +1216,49 @@ mod tests {
                             ],
                         },
                     }
-                )),
+                ))),
+                condition: None,
+                group_by: Vec::new(),
+                aggregate_functions: Vec::new(),
+                having: None,
+                order_by: None,
+                limit: None,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_without_from() -> Result<()> {
+        let instance = setup_test_database()?;
+
+        let sql = "select 1, 'a'";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+        let statement = parser.parse()?;
+
+        let txn_id = instance.begin(None)?;
+        let mut binder = Binder::new(instance.catalog, txn_id);
+        let bound_statement = binder.bind_statement(&statement)?;
+        assert_eq!(
+            bound_statement,
+            BoundStatementAST::Select(BoundSelectStatementAST {
+                select_elements: vec![
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                            data_type: Some(DataType::Integer),
+                        }),
+                        name: "__c0".to_string(),
+                    },
+                    BoundSelectElementAST {
+                        expression: BoundExpressionAST::Literal(BoundLiteralExpressionAST {
+                            value: Value::Varchar(VarcharValue("a".to_string())),
+                            data_type: Some(DataType::Varchar),
+                        }),
+                        name: "__c1".to_string(),
+                    },
+                ],
+                table_reference: None,
                 condition: None,
                 group_by: Vec::new(),
                 aggregate_functions: Vec::new(),

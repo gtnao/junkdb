@@ -11,6 +11,7 @@ use crate::{
 use self::{
     aggregate_executor::{AggregateExecutor, AggregateTable, AggregateTableValue},
     delete_executor::DeleteExecutor,
+    empty_row_executor::EmptyRowExecutor,
     filter_executor::FilterExecutor,
     insert_executor::InsertExecutor,
     limit_executor::LimitExecutor,
@@ -23,6 +24,7 @@ use self::{
 
 mod aggregate_executor;
 mod delete_executor;
+mod empty_row_executor;
 mod filter_executor;
 mod insert_executor;
 mod limit_executor;
@@ -130,6 +132,11 @@ impl ExecutorEngine {
                 result: vec![],
                 cursor: 0,
             }),
+            Plan::EmptyRow(plan) => Executor::EmptyRow(EmptyRowExecutor {
+                plan: plan.clone(),
+                executor_context: &self.context,
+                returned: false,
+            }),
             Plan::Insert(plan) => Executor::Insert(InsertExecutor {
                 plan: plan.clone(),
                 executor_context: &self.context,
@@ -183,6 +190,7 @@ pub enum Executor<'a> {
     Aggregate(AggregateExecutor<'a>),
     Sort(SortExecutor<'a>),
     Limit(LimitExecutor<'a>),
+    EmptyRow(EmptyRowExecutor<'a>),
     Insert(InsertExecutor<'a>),
     Delete(DeleteExecutor<'a>),
     Update(UpdateExecutor<'a>),
@@ -197,6 +205,7 @@ impl Executor<'_> {
             Executor::Aggregate(executor) => executor.init(),
             Executor::Sort(executor) => executor.init(),
             Executor::Limit(executor) => executor.init(),
+            Executor::EmptyRow(executor) => executor.init(),
             Executor::Insert(executor) => executor.init(),
             Executor::Delete(executor) => executor.init(),
             Executor::Update(executor) => executor.init(),
@@ -211,6 +220,7 @@ impl Executor<'_> {
             Executor::Aggregate(executor) => executor.next(),
             Executor::Sort(executor) => executor.next(),
             Executor::Limit(executor) => executor.next(),
+            Executor::EmptyRow(executor) => executor.next(),
             Executor::Insert(executor) => executor.next(),
             Executor::Delete(executor) => executor.next(),
             Executor::Update(executor) => executor.next(),
@@ -486,6 +496,28 @@ mod tests {
                 Value::Integer(IntegerValue(2)),
             ]]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_without_from() -> Result<()> {
+        let instance = setup_test_database()?;
+        let txn_id = instance.begin(None)?;
+
+        let sql = "SELECT 1 + 2";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+        assert_eq!(rows, vec![vec![Value::Integer(IntegerValue(3))]]);
+
+        let sql = "SELECT 1 + 2, 3 + 4";
+        let (rows, _) = execute(sql, &instance, txn_id)?;
+        assert_eq!(
+            rows,
+            vec![vec![
+                Value::Integer(IntegerValue(3)),
+                Value::Integer(IntegerValue(7)),
+            ]]
+        );
+
         Ok(())
     }
 }

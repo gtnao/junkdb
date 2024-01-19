@@ -30,7 +30,7 @@ pub struct TableElementAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SelectStatementAST {
     pub select_elements: Vec<SelectElementAST>,
-    pub table_reference: TableReferenceAST,
+    pub table_reference: Option<TableReferenceAST>,
     pub condition: Option<ExpressionAST>,
     pub group_by: Option<Vec<ExpressionAST>>,
     pub having: Option<ExpressionAST>,
@@ -273,8 +273,11 @@ impl Parser {
             }
             res
         };
-        self.consume_token_or_error(Token::Keyword(Keyword::From))?;
-        let table_reference = self.table_reference()?;
+        let table_reference = if self.consume_token(Token::Keyword(Keyword::From)) {
+            Some(self.table_reference()?)
+        } else {
+            None
+        };
         let condition = if self.consume_token(Token::Keyword(Keyword::Where)) {
             Some(self.expression()?)
         } else {
@@ -784,10 +787,10 @@ mod tests {
                         alias: None,
                     },
                 ],
-                table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
+                table_reference: Some(TableReferenceAST::Base(BaseTableReferenceAST {
                     table_name: String::from("users"),
                     alias: Some(String::from("u")),
-                }),
+                })),
                 condition: Some(ExpressionAST::Binary(BinaryExpressionAST {
                     operator: BinaryOperator::Equal,
                     left: Box::new(ExpressionAST::Path(PathExpressionAST {
@@ -836,10 +839,10 @@ mod tests {
             statement,
             StatementAST::Select(SelectStatementAST {
                 select_elements: vec![],
-                table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
+                table_reference: Some(TableReferenceAST::Base(BaseTableReferenceAST {
                     table_name: String::from("users"),
                     alias: None,
-                }),
+                })),
                 condition: None,
                 group_by: None,
                 having: None,
@@ -865,10 +868,10 @@ mod tests {
                     }),
                     alias: None,
                 }],
-                table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
+                table_reference: Some(TableReferenceAST::Base(BaseTableReferenceAST {
                     table_name: String::from("users"),
                     alias: None,
-                }),
+                })),
                 condition: None,
                 group_by: Some(vec![
                     ExpressionAST::Path(PathExpressionAST {
@@ -1008,7 +1011,7 @@ mod tests {
             statement,
             StatementAST::Select(SelectStatementAST {
                 select_elements: vec![],
-                table_reference: TableReferenceAST::Join(JoinTableReferenceAST {
+                table_reference: Some(TableReferenceAST::Join(JoinTableReferenceAST {
                     left: Box::new(TableReferenceAST::Base(BaseTableReferenceAST {
                         table_name: String::from("t1"),
                         alias: None,
@@ -1059,7 +1062,7 @@ mod tests {
                         })),
                     })),
                     join_type: JoinType::Inner,
-                }),
+                })),
                 condition: None,
                 group_by: None,
                 having: None,
@@ -1090,14 +1093,14 @@ mod tests {
             statement,
             StatementAST::Select(SelectStatementAST {
                 select_elements: vec![],
-                table_reference: TableReferenceAST::Join(JoinTableReferenceAST {
+                table_reference: Some(TableReferenceAST::Join(JoinTableReferenceAST {
                     left: Box::new(TableReferenceAST::Subquery(SubqueryTableReferenceAST {
                         select_statement: Box::new(SelectStatementAST {
                             select_elements: vec![],
-                            table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
+                            table_reference: Some(TableReferenceAST::Base(BaseTableReferenceAST {
                                 table_name: String::from("accounts"),
                                 alias: None,
-                            }),
+                            })),
                             condition: None,
                             group_by: None,
                             having: None,
@@ -1109,10 +1112,10 @@ mod tests {
                     right: Box::new(TableReferenceAST::Subquery(SubqueryTableReferenceAST {
                         select_statement: Box::new(SelectStatementAST {
                             select_elements: vec![],
-                            table_reference: TableReferenceAST::Base(BaseTableReferenceAST {
+                            table_reference: Some(TableReferenceAST::Base(BaseTableReferenceAST {
                                 table_name: String::from("users"),
                                 alias: None,
-                            }),
+                            })),
                             condition: None,
                             group_by: None,
                             having: None,
@@ -1131,7 +1134,39 @@ mod tests {
                         })),
                     })),
                     join_type: JoinType::Inner,
-                }),
+                })),
+                condition: None,
+                group_by: None,
+                having: None,
+                order_by: None,
+                limit: None,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_without_from() -> Result<()> {
+        let sql = "SELECT 1 + 1";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        assert_eq!(
+            statement,
+            StatementAST::Select(SelectStatementAST {
+                select_elements: vec![SelectElementAST {
+                    expression: ExpressionAST::Binary(BinaryExpressionAST {
+                        operator: BinaryOperator::Add,
+                        left: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                        right: Box::new(ExpressionAST::Literal(LiteralExpressionAST {
+                            value: Value::Integer(IntegerValue(1)),
+                        })),
+                    }),
+                    alias: None,
+                }],
+                table_reference: None,
                 condition: None,
                 group_by: None,
                 having: None,

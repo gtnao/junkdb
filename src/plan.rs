@@ -20,6 +20,7 @@ pub enum Plan {
     Aggregate(AggregatePlan),
     Sort(SortPlan),
     Limit(LimitPlan),
+    EmptyRow(EmptyRowPlan),
     Insert(InsertPlan),
     Delete(DeletePlan),
     Update(UpdatePlan),
@@ -34,6 +35,7 @@ impl Plan {
             Plan::Aggregate(plan) => &plan.schema,
             Plan::Sort(plan) => &plan.schema,
             Plan::Limit(plan) => &plan.schema,
+            Plan::EmptyRow(plan) => &plan.schema,
             Plan::Insert(plan) => &plan.schema,
             Plan::Delete(plan) => &plan.schema,
             Plan::Update(plan) => &plan.schema,
@@ -84,6 +86,10 @@ pub struct LimitPlan {
     pub child: Box<Plan>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub struct EmptyRowPlan {
+    pub schema: Schema,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InsertPlan {
     pub first_page_id: PageID,
     pub table_schema: Schema,
@@ -128,7 +134,32 @@ impl Planner {
         }
     }
     fn plan_select_statement(&self, select_statement: &BoundSelectStatementAST) -> Plan {
-        let mut plan = self.plan_table_reference(&select_statement.table_reference);
+        if select_statement.table_reference.is_none() {
+            return Plan::Project(ProjectPlan {
+                select_elements: select_statement.select_elements.clone(),
+                schema: Schema {
+                    columns: select_statement
+                        .select_elements
+                        .iter()
+                        .map(|select_element| Column {
+                            name: select_element.name.clone(),
+                            // TODO: not use dummy type
+                            data_type: select_element
+                                .expression
+                                .data_type()
+                                .unwrap_or(DataType::Boolean),
+                        })
+                        .collect(),
+                },
+                child: Box::new(Plan::EmptyRow(EmptyRowPlan {
+                    schema: Schema { columns: vec![] },
+                })),
+            });
+        }
+        let mut plan = match select_statement.table_reference {
+            Some(ref table_reference) => self.plan_table_reference(table_reference),
+            None => unreachable!(),
+        };
         if let Some(condition) = &select_statement.condition {
             plan = Plan::Filter(FilterPlan {
                 condition: condition.clone(),
