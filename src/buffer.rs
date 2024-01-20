@@ -117,11 +117,31 @@ impl BufferPoolManager {
         }
         unreachable!("page not found")
     }
+    pub fn init_page_for_recovery(&mut self, page_id: PageID, page: Page) -> Result<()> {
+        if self.page_table.contains_key(&page_id) {
+            return Ok(());
+        }
+        let mut data = vec![0u8; PAGE_SIZE];
+        self.disk_manager.read_page(page_id, &mut data)?;
+        if data.iter().all(|&x| x == 0) {
+            if self.is_full() {
+                self.evict_page()?;
+            }
+            let frame_id = self.frames.len();
+            self.frames
+                .push(Some(Frame::new(Arc::new(RwLock::new(page)))));
+            self.page_table.insert(page_id, frame_id);
+            if let Some(frame) = &mut self.frames[frame_id] {
+                frame.mark_dirty();
+            }
+        }
+        Ok(())
+    }
     pub fn shutdown(&mut self) -> Result<()> {
         self.flush_all_pages()?;
         Ok(())
     }
-    fn flush_all_pages(&mut self) -> Result<()> {
+    pub fn flush_all_pages(&mut self) -> Result<()> {
         let keys = self.page_table.keys().cloned().collect::<Vec<_>>();
         for page_id in keys {
             self.flush_page(page_id)?;

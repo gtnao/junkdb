@@ -12,8 +12,9 @@ fn main() -> Result<()> {
     match &*args[1] {
         "client" => client_start()?,
         "server" => {
-            let init = args.len() > 2 && &*args[2] == "--init";
-            server_start(init)?;
+            let init = args.iter().any(|arg| arg == "--init");
+            let recover = args.iter().any(|arg| arg == "--recover");
+            server_start(init, recover)?;
         }
         _ => {
             println!("Usage: cargo run client|server");

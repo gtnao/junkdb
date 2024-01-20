@@ -10,7 +10,7 @@ use crate::{
 pub fn setup_test_database() -> Result<Instance> {
     let dir = tempdir()?;
     let data_dir = dir.path().join("data");
-    let instance = Instance::new(data_dir.to_str().unwrap(), true)?;
+    let instance = Instance::new(data_dir.to_str().unwrap(), true, false)?;
     let txn_id = instance.begin(None)?;
     let create_table_ast = CreateTableStatementAST {
         table_name: "t1".to_string(),

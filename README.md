@@ -39,7 +39,8 @@ The following shows REPEATABLE READ implemented via snapshot isolation.
   - [ ] Lock
     - [x] Row-level Exclusive Locking: prevent dirty write.
     - [ ] Deadlock Detection
-  - [ ] Recovery (ARIES-based)
+  - [x] Recovery (ARIES-based)
+    - [ ] Checkpoint
 - [ ] Indexing
   - [ ] B+ Tree
 - [x] Buffer Pool

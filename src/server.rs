@@ -18,11 +18,11 @@ use crate::{
 
 const SERVER_DEFAULT_PORT: u16 = 7878;
 
-pub fn server_start(init: bool) -> Result<()> {
+pub fn server_start(init: bool, recover: bool) -> Result<()> {
     println!("junkdb server started");
 
     // init
-    let instance = Arc::new(RwLock::new(Instance::new("data", init)?));
+    let instance = Arc::new(RwLock::new(Instance::new("data", init, recover)?));
 
     // trap signals
     let instance_clone = instance.clone();

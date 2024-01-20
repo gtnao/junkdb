@@ -13,6 +13,7 @@ pub mod log;
 pub mod page;
 pub mod parser;
 pub mod plan;
+pub mod recovery;
 pub mod server;
 pub mod table;
 pub mod tuple;

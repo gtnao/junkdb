@@ -17,6 +17,7 @@ use crate::{
     log::LogManager,
     parser::{CreateTableStatementAST, StatementAST},
     plan::Planner,
+    recovery::RecoveryManager,
     value::Value,
 };
 
@@ -29,7 +30,7 @@ pub struct Instance {
 }
 
 impl Instance {
-    pub fn new(dir: &str, init: bool) -> Result<Self> {
+    pub fn new(dir: &str, init: bool, recover: bool) -> Result<Self> {
         if init {
             if fs::metadata(dir).is_ok() && fs::metadata(dir)?.is_dir() {
                 fs::remove_dir_all(dir)?;
@@ -63,6 +64,16 @@ impl Instance {
         );
         catalog.bootstrap(init)?;
         let catalog = Arc::new(Mutex::new(catalog));
+
+        if recover {
+            let log_records = log_manager
+                .lock()
+                .map_err(|e| anyhow::anyhow!("{}", e))?
+                .read()?;
+            let mut recovery_manager =
+                RecoveryManager::new(buffer_pool_manager.clone(), log_records);
+            recovery_manager.recover()?;
+        }
 
         Ok(Self {
             buffer_pool_manager,
@@ -163,7 +174,7 @@ mod tests {
     fn test_new_init() -> Result<()> {
         let temp_dir = tempdir()?;
         let dir = temp_dir.path().join("test");
-        Instance::new(dir.to_str().unwrap(), true)?;
+        Instance::new(dir.to_str().unwrap(), true, false)?;
         assert!(dir.exists());
         assert!(dir.join("data.db").exists());
         assert!(dir.join("txn.log").exists());
@@ -174,14 +185,14 @@ mod tests {
     fn test_new_init_exists() -> Result<()> {
         let temp_dir = tempdir()?;
         let dir = temp_dir.path().join("test");
-        let instance = Instance::new(dir.to_str().unwrap(), true)?;
+        let instance = Instance::new(dir.to_str().unwrap(), true, false)?;
 
         let created_at = fs::metadata(&dir)?.created()?;
         thread::sleep(std::time::Duration::from_secs(1));
 
         // check dir was recreated
         instance.shutdown()?;
-        Instance::new(dir.to_str().unwrap(), true)?;
+        Instance::new(dir.to_str().unwrap(), true, false)?;
         assert!(created_at < fs::metadata(&dir)?.created()?);
         assert!(dir.join("data.db").exists());
         assert!(dir.join("txn.log").exists());
@@ -192,13 +203,13 @@ mod tests {
     fn test_new_not_init() -> Result<()> {
         let temp_dir = tempdir()?;
         let dir = temp_dir.path().join("test");
-        let instance = Instance::new(dir.to_str().unwrap(), true)?;
+        let instance = Instance::new(dir.to_str().unwrap(), true, false)?;
         let created_at = fs::metadata(&dir)?.created()?;
         thread::sleep(std::time::Duration::from_secs(1));
 
         // check dir was not recreated
         instance.shutdown()?;
-        Instance::new(dir.to_str().unwrap(), false)?;
+        Instance::new(dir.to_str().unwrap(), false, false)?;
         assert_eq!(created_at, fs::metadata(&dir)?.created()?);
         assert!(dir.join("data.db").exists());
         assert!(dir.join("txn.log").exists());
