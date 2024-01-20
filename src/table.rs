@@ -7,6 +7,10 @@ use crate::{
     common::{PageID, TransactionID, INVALID_PAGE_ID, INVALID_TRANSACTION_ID, RID},
     concurrency::TransactionManager,
     lock::LockManager,
+    log::{
+        DeleteFromTablePage, InsertToTablePage, LogManager, LogRecordBody, NewTablePage,
+        SetNextPageID,
+    },
     page::table_page::TABLE_PAGE_PAGE_TYPE,
     tuple::Tuple,
     value::Value,
@@ -17,6 +21,7 @@ pub struct TableHeap {
     buffer_pool_manager: Arc<Mutex<BufferPoolManager>>,
     transaction_manager: Arc<Mutex<TransactionManager>>,
     lock_manager: Arc<RwLock<LockManager>>,
+    log_manager: Arc<Mutex<LogManager>>,
     txn_id: TransactionID,
 }
 
@@ -26,6 +31,7 @@ impl TableHeap {
         buffer_pool_manager: Arc<Mutex<BufferPoolManager>>,
         transaction_manager: Arc<Mutex<TransactionManager>>,
         lock_manager: Arc<RwLock<LockManager>>,
+        log_manager: Arc<Mutex<LogManager>>,
         txn_id: TransactionID,
     ) -> Self {
         Self {
@@ -33,6 +39,7 @@ impl TableHeap {
             buffer_pool_manager,
             transaction_manager,
             lock_manager,
+            log_manager,
             txn_id,
         }
     }
@@ -51,6 +58,20 @@ impl TableHeap {
                 .with_table_page_mut(|table_page| table_page.insert(&tuple_data));
             // TODO: only free space not enough
             if result.is_ok() {
+                let lsn = self
+                    .log_manager
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("lock error"))?
+                    .append(
+                        self.txn_id,
+                        LogRecordBody::InsertToTablePage(InsertToTablePage {
+                            page_id,
+                            data: tuple_data.clone(),
+                        }),
+                    )?;
+                page.write()
+                    .map_err(|_| anyhow::anyhow!("lock error"))?
+                    .with_table_page_mut(|table_page| table_page.set_lsn(lsn));
                 self.buffer_pool_manager
                     .lock()
                     .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -68,6 +89,18 @@ impl TableHeap {
                     .lock()
                     .map_err(|_| anyhow::anyhow!("lock error"))?
                     .new_page(TABLE_PAGE_PAGE_TYPE)?;
+                let lsn = self
+                    .log_manager
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("lock error"))?
+                    .append(
+                        self.txn_id,
+                        LogRecordBody::NewTablePage(NewTablePage { page_id }),
+                    )?;
+                next_page
+                    .write()
+                    .map_err(|_| anyhow::anyhow!("lock error"))?
+                    .with_table_page_mut(|table_page| table_page.set_lsn(lsn));
                 let next_page_id = next_page
                     .read()
                     .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -75,6 +108,20 @@ impl TableHeap {
                 page.write()
                     .map_err(|_| anyhow::anyhow!("lock error"))?
                     .with_table_page_mut(|table_page| table_page.set_next_page_id(next_page_id));
+                let lsn = self
+                    .log_manager
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("lock error"))?
+                    .append(
+                        self.txn_id,
+                        LogRecordBody::SetNextPageID(SetNextPageID {
+                            page_id,
+                            next_page_id,
+                        }),
+                    )?;
+                page.write()
+                    .map_err(|_| anyhow::anyhow!("lock error"))?
+                    .with_table_page_mut(|table_page| table_page.set_lsn(lsn));
                 self.buffer_pool_manager
                     .lock()
                     .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -110,6 +157,21 @@ impl TableHeap {
         page.write()
             .map_err(|_| anyhow::anyhow!("lock error"))?
             .with_table_page_mut(|table_page| table_page.delete(tuple_index, self.txn_id));
+        let lsn = self
+            .log_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .append(
+                self.txn_id,
+                LogRecordBody::DeleteFromTablePage(DeleteFromTablePage { rid }),
+            )?;
+        page.write()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .with_table_page_mut(|table_page| table_page.set_lsn(lsn));
+        self.buffer_pool_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .unpin_page(page_id, true)?;
         Ok(())
     }
 }

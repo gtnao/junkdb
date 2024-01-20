@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 
 use crate::{
-    common::{PageID, TransactionID, INVALID_PAGE_ID, PAGE_SIZE},
+    common::{PageID, TransactionID, INVALID_PAGE_ID, LSN, PAGE_SIZE},
     tuple::Tuple,
 };
 
@@ -9,14 +9,20 @@ use super::{PageType, PAGE_ID_OFFSET, PAGE_ID_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_
 
 pub const TABLE_PAGE_PAGE_TYPE: PageType = PageType(1);
 
-const NEXT_PAGE_ID_OFFSET: usize = PAGE_ID_OFFSET + PAGE_ID_SIZE;
+const LSN_OFFSET: usize = PAGE_ID_OFFSET + PAGE_ID_SIZE;
+const LSN_SIZE: usize = 8;
+const NEXT_PAGE_ID_OFFSET: usize = LSN_OFFSET + LSN_SIZE;
 const NEXT_PAGE_ID_SIZE: usize = 4;
 const LOWER_OFFSET_OFFSET: usize = NEXT_PAGE_ID_OFFSET + NEXT_PAGE_ID_SIZE;
 const LOWER_OFFSET_SIZE: usize = 4;
 const UPPER_OFFSET_OFFSET: usize = LOWER_OFFSET_OFFSET + LOWER_OFFSET_SIZE;
 const UPPER_OFFSET_SIZE: usize = 4;
-const HEADER_SIZE: usize =
-    PAGE_TYPE_SIZE + PAGE_ID_SIZE + NEXT_PAGE_ID_SIZE + LOWER_OFFSET_SIZE + UPPER_OFFSET_SIZE;
+const HEADER_SIZE: usize = PAGE_TYPE_SIZE
+    + PAGE_ID_SIZE
+    + LSN_SIZE
+    + NEXT_PAGE_ID_SIZE
+    + LOWER_OFFSET_SIZE
+    + UPPER_OFFSET_SIZE;
 const LINE_POINTER_OFFSET_SIZE: usize = 4;
 const LINE_POINTER_SIZE_SIZE: usize = 4;
 const LINE_POINTER_SIZE: usize = LINE_POINTER_OFFSET_SIZE + LINE_POINTER_SIZE_SIZE;
@@ -38,9 +44,7 @@ impl TablePage {
             .copy_from_slice(&(HEADER_SIZE as u32).to_le_bytes());
         data[UPPER_OFFSET_OFFSET..(UPPER_OFFSET_OFFSET + UPPER_OFFSET_SIZE)]
             .copy_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
-        TablePage {
-            data: data.into_boxed_slice(),
-        }
+        TablePage { data: data.into() }
     }
     pub fn from_data(data: &[u8]) -> Self {
         TablePage { data: data.into() }
@@ -94,12 +98,20 @@ impl TablePage {
         bytes.copy_from_slice(&self.data[PAGE_ID_OFFSET..(PAGE_ID_OFFSET + PAGE_ID_SIZE)]);
         PageID(u32::from_le_bytes(bytes))
     }
+    pub fn lsn(&self) -> LSN {
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&self.data[LSN_OFFSET..(LSN_OFFSET + LSN_SIZE)]);
+        LSN(u64::from_le_bytes(bytes))
+    }
     pub fn next_page_id(&self) -> PageID {
         let mut bytes = [0u8; 4];
         bytes.copy_from_slice(
             &self.data[NEXT_PAGE_ID_OFFSET..(NEXT_PAGE_ID_OFFSET + NEXT_PAGE_ID_SIZE)],
         );
         PageID(u32::from_le_bytes(bytes))
+    }
+    pub fn set_lsn(&mut self, lsn: LSN) {
+        self.data[LSN_OFFSET..(LSN_OFFSET + LSN_SIZE)].copy_from_slice(&lsn.0.to_le_bytes());
     }
     pub fn set_next_page_id(&mut self, page_id: PageID) {
         self.data[NEXT_PAGE_ID_OFFSET..(NEXT_PAGE_ID_OFFSET + NEXT_PAGE_ID_SIZE)]

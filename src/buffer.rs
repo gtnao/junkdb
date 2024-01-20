@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use anyhow::{anyhow, Result};
@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 use crate::{
     common::{PageID, PAGE_SIZE},
     disk::DiskManager,
+    log::LogManager,
     page::{Page, PageType},
 };
 
@@ -40,15 +41,21 @@ impl Frame {
 
 pub struct BufferPoolManager {
     disk_manager: DiskManager,
+    log_manager: Arc<Mutex<LogManager>>,
     size: usize,
     frames: Vec<Option<Frame>>,
     page_table: HashMap<PageID, usize>,
     replacer: Replacer,
 }
 impl BufferPoolManager {
-    pub fn new(disk_manager: DiskManager, size: usize) -> Self {
+    pub fn new(
+        disk_manager: DiskManager,
+        log_manager: Arc<Mutex<LogManager>>,
+        size: usize,
+    ) -> Self {
         Self {
             disk_manager,
+            log_manager,
             size,
             frames: Vec::with_capacity(size),
             page_table: HashMap::new(),
@@ -126,6 +133,10 @@ impl BufferPoolManager {
             if let Some(frame) = &mut self.frames[frame_id] {
                 if frame.is_dirty {
                     let page = frame.page.read().map_err(|_| anyhow!("lock error"))?;
+                    self.log_manager
+                        .lock()
+                        .map_err(|_| anyhow!("lock error"))?
+                        .flush()?;
                     self.disk_manager.write_page(page_id, &page.data())?;
                 }
             }
@@ -248,8 +259,12 @@ mod tests {
     fn test_buffer_pool_manager() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let data_file_path = dir.path().join("data");
+        let log_file_path = dir.path().join("log");
         let disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
-        let mut buffer_pool_manager = BufferPoolManager::new(disk_manager, 3);
+        let log_manager = Arc::new(Mutex::new(LogManager::new(
+            log_file_path.to_str().unwrap(),
+        )?));
+        let mut buffer_pool_manager = BufferPoolManager::new(disk_manager, log_manager, 3);
 
         buffer_pool_manager.new_page(TABLE_PAGE_PAGE_TYPE)?;
         buffer_pool_manager.new_page(TABLE_PAGE_PAGE_TYPE)?;
@@ -269,7 +284,10 @@ mod tests {
 
         // restart
         let disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
-        let mut buffer_pool_manager = BufferPoolManager::new(disk_manager, 3);
+        let log_manager = Arc::new(Mutex::new(LogManager::new(
+            log_file_path.to_str().unwrap(),
+        )?));
+        let mut buffer_pool_manager = BufferPoolManager::new(disk_manager, log_manager, 3);
         let page1 = buffer_pool_manager.fetch_page(PageID(1))?;
         let page2 = buffer_pool_manager.fetch_page(PageID(2))?;
         let page3 = buffer_pool_manager.fetch_page(PageID(3))?;

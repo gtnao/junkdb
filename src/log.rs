@@ -33,12 +33,9 @@ impl LogManager {
         log_manager.next_lsn = next_lsn;
         Ok(log_manager)
     }
-    pub fn append(&mut self, txn_id: TransactionID, body: LogRecordBody) -> Result<()> {
-        let log_record = LogRecord {
-            lsn: self.next_lsn,
-            txn_id,
-            body,
-        };
+    pub fn append(&mut self, txn_id: TransactionID, body: LogRecordBody) -> Result<LSN> {
+        let lsn = self.next_lsn;
+        let log_record = LogRecord { lsn, txn_id, body };
         self.next_lsn.0 += 1;
 
         let bytes = log_record.serialize();
@@ -49,7 +46,7 @@ impl LogManager {
             self.flush()?;
         }
         self.buffer.extend_from_slice(&bytes);
-        Ok(())
+        Ok(lsn)
     }
     pub fn read(&mut self) -> Result<Vec<LogRecord>> {
         let mut buffer = vec![];

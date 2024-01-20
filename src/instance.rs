@@ -14,6 +14,7 @@ use crate::{
     disk::DiskManager,
     executor::{ExecutorContext, ExecutorEngine},
     lock::LockManager,
+    log::LogManager,
     parser::{CreateTableStatementAST, StatementAST},
     plan::Planner,
     value::Value,
@@ -24,6 +25,7 @@ pub struct Instance {
     pub catalog: Arc<Mutex<Catalog>>,
     pub transaction_manager: Arc<Mutex<TransactionManager>>,
     pub lock_manager: Arc<RwLock<LockManager>>,
+    pub log_manager: Arc<Mutex<LogManager>>,
 }
 
 impl Instance {
@@ -37,12 +39,19 @@ impl Instance {
 
         let data_file = format!("{}/data.db", dir);
         let txn_log_file = format!("{}/txn.log", dir);
+        let wal_log_file = format!("{}/wal.log", dir);
 
         let disk_manager = DiskManager::new(&data_file)?;
-        let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(disk_manager, 32)));
+        let log_manager = Arc::new(Mutex::new(LogManager::new(&wal_log_file)?));
+        let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(
+            disk_manager,
+            log_manager.clone(),
+            32,
+        )));
         let lock_manager = Arc::new(RwLock::new(LockManager::default()));
         let transaction_manager = Arc::new(Mutex::new(TransactionManager::new(
             lock_manager.clone(),
+            log_manager.clone(),
             &txn_log_file,
             IsolationLevel::RepeatableRead,
         )?));
@@ -50,6 +59,7 @@ impl Instance {
             buffer_pool_manager.clone(),
             transaction_manager.clone(),
             lock_manager.clone(),
+            log_manager.clone(),
         );
         catalog.bootstrap(init)?;
         let catalog = Arc::new(Mutex::new(catalog));
@@ -59,6 +69,7 @@ impl Instance {
             catalog,
             transaction_manager,
             lock_manager,
+            log_manager,
         })
     }
 
@@ -100,6 +111,7 @@ impl Instance {
             buffer_pool_manager: self.buffer_pool_manager.clone(),
             lock_manager: self.lock_manager.clone(),
             transaction_manager: self.transaction_manager.clone(),
+            log_manager: self.log_manager.clone(),
             catalog: self.catalog.clone(),
         };
         let mut executor_engine = ExecutorEngine::new(plan, executor_context);
@@ -116,7 +128,7 @@ impl Instance {
             .transaction_manager
             .lock()
             .map_err(|e| anyhow::anyhow!("{}", e))?
-            .begin())
+            .begin()?)
     }
     pub fn commit(&self, txn_id: TransactionID) -> Result<()> {
         self.transaction_manager

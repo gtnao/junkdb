@@ -4,8 +4,8 @@ use anyhow::Result;
 
 use crate::{
     buffer::BufferPoolManager, catalog::Catalog, common::TransactionID,
-    concurrency::TransactionManager, lock::LockManager, plan::Plan, table::TableHeap, tuple::Tuple,
-    value::Value,
+    concurrency::TransactionManager, lock::LockManager, log::LogManager, plan::Plan,
+    table::TableHeap, tuple::Tuple, value::Value,
 };
 
 use self::{
@@ -39,6 +39,7 @@ pub struct ExecutorContext {
     pub buffer_pool_manager: Arc<Mutex<BufferPoolManager>>,
     pub lock_manager: Arc<RwLock<LockManager>>,
     pub transaction_manager: Arc<Mutex<TransactionManager>>,
+    pub log_manager: Arc<Mutex<LogManager>>,
     pub catalog: Arc<Mutex<Catalog>>,
 }
 
@@ -71,6 +72,7 @@ impl ExecutorEngine {
                     self.context.buffer_pool_manager.clone(),
                     self.context.transaction_manager.clone(),
                     self.context.lock_manager.clone(),
+                    self.context.log_manager.clone(),
                     self.context.transaction_id,
                 )
                 .iter(),
@@ -145,6 +147,7 @@ impl ExecutorEngine {
                     self.context.buffer_pool_manager.clone(),
                     self.context.transaction_manager.clone(),
                     self.context.lock_manager.clone(),
+                    self.context.log_manager.clone(),
                     self.context.transaction_id,
                 ),
                 count: 0,
@@ -159,6 +162,7 @@ impl ExecutorEngine {
                     self.context.buffer_pool_manager.clone(),
                     self.context.transaction_manager.clone(),
                     self.context.lock_manager.clone(),
+                    self.context.log_manager.clone(),
                     self.context.transaction_id,
                 ),
                 count: 0,
@@ -173,6 +177,7 @@ impl ExecutorEngine {
                     self.context.buffer_pool_manager.clone(),
                     self.context.transaction_manager.clone(),
                     self.context.lock_manager.clone(),
+                    self.context.log_manager.clone(),
                     self.context.transaction_id,
                 ),
                 count: 0,

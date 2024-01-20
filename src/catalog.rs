@@ -7,6 +7,7 @@ use crate::{
     common::{PageID, TransactionID},
     concurrency::TransactionManager,
     lock::LockManager,
+    log::{LogManager, LogRecordBody, NewTablePage},
     page::table_page::TABLE_PAGE_PAGE_TYPE,
     table::TableHeap,
     value::{integer::IntegerValue, varchar::VarcharValue, Value},
@@ -57,6 +58,7 @@ pub struct Catalog {
     buffer_pool_manager: Arc<Mutex<BufferPoolManager>>,
     transaction_manager: Arc<Mutex<TransactionManager>>,
     lock_manager: Arc<RwLock<LockManager>>,
+    log_manager: Arc<Mutex<LogManager>>,
     next_table_id: u32,
 }
 
@@ -65,11 +67,13 @@ impl Catalog {
         buffer_pool_manager: Arc<Mutex<BufferPoolManager>>,
         transaction_manager: Arc<Mutex<TransactionManager>>,
         lock_manager: Arc<RwLock<LockManager>>,
+        log_manager: Arc<Mutex<LogManager>>,
     ) -> Self {
         Self {
             buffer_pool_manager,
             transaction_manager,
             lock_manager,
+            log_manager,
             next_table_id: 0,
         }
     }
@@ -78,15 +82,14 @@ impl Catalog {
             self.set_next_table_id()?;
             return Ok(());
         }
-        for _ in 0..SYSTEM_TABLE_COUNT {
-            self.create_empty_system_table()?;
-        }
-
         let txn_id = self
             .transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
-            .begin();
+            .begin()?;
+        for _ in 0..SYSTEM_TABLE_COUNT {
+            self.create_empty_system_table(txn_id)?;
+        }
         self.create_system_table(
             "system_tables",
             &Self::system_tables_schema(),
@@ -117,6 +120,21 @@ impl Catalog {
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
             .new_page(TABLE_PAGE_PAGE_TYPE)?;
+        let page_id = page
+            .read()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .page_id();
+        let lsn = self
+            .log_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .append(
+                txn_id,
+                LogRecordBody::NewTablePage(NewTablePage { page_id }),
+            )?;
+        page.write()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .with_table_page_mut(|table_page| table_page.set_lsn(lsn));
         self.buffer_pool_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -202,12 +220,27 @@ impl Catalog {
         Ok(schema)
     }
 
-    fn create_empty_system_table(&self) -> Result<()> {
+    fn create_empty_system_table(&self, txn_id: TransactionID) -> Result<()> {
         let page = self
             .buffer_pool_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
             .new_page(TABLE_PAGE_PAGE_TYPE)?;
+        let page_id = page
+            .read()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .page_id();
+        let lsn = self
+            .log_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .append(
+                txn_id,
+                LogRecordBody::NewTablePage(NewTablePage { page_id }),
+            )?;
+        page.write()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .with_table_page_mut(|table_page| table_page.set_lsn(lsn));
         self.buffer_pool_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
@@ -260,6 +293,7 @@ impl Catalog {
             self.buffer_pool_manager.clone(),
             self.transaction_manager.clone(),
             self.lock_manager.clone(),
+            self.log_manager.clone(),
             txn_id,
         )
     }
@@ -269,7 +303,7 @@ impl Catalog {
             .transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
-            .begin();
+            .begin()?;
         let system_tables_table =
             self.system_table_heap(PageID(SYSTEM_TABLES_FIRST_PAGE_ID.0), txn_id);
         for tuple in system_tables_table.iter() {
@@ -363,6 +397,7 @@ mod tests {
         concurrency::{IsolationLevel, TransactionManager},
         disk::DiskManager,
         lock::LockManager,
+        log::LogManager,
         table::TableHeap,
         value::{integer::IntegerValue, varchar::VarcharValue, Value},
     };
@@ -372,11 +407,20 @@ mod tests {
         let dir = tempdir()?;
         let data_file_path = dir.path().join("data");
         let txn_log_file_path = dir.path().join("transaction.log");
+        let wal_log_file_path = dir.path().join("wal.log");
         let disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
-        let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(disk_manager, 10)));
+        let log_manager = Arc::new(Mutex::new(LogManager::new(
+            wal_log_file_path.to_str().unwrap(),
+        )?));
+        let buffer_pool_manager = Arc::new(Mutex::new(BufferPoolManager::new(
+            disk_manager,
+            log_manager.clone(),
+            10,
+        )));
         let lock_manager = Arc::new(RwLock::new(LockManager::default()));
         let transaction_manager = Arc::new(Mutex::new(TransactionManager::new(
             lock_manager.clone(),
+            log_manager.clone(),
             txn_log_file_path.to_str().unwrap(),
             IsolationLevel::RepeatableRead,
         )?));
@@ -384,6 +428,7 @@ mod tests {
             buffer_pool_manager.clone(),
             transaction_manager.clone(),
             lock_manager.clone(),
+            log_manager.clone(),
         );
 
         // bootstrap
@@ -393,7 +438,7 @@ mod tests {
         let txn_id = transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
-            .begin();
+            .begin()?;
         catalog.create_table(
             "test",
             &Schema {
@@ -420,6 +465,7 @@ mod tests {
             buffer_pool_manager.clone(),
             transaction_manager.clone(),
             lock_manager.clone(),
+            log_manager.clone(),
             txn_id,
         );
         let values = vec![
@@ -437,7 +483,7 @@ mod tests {
         let txn_id = transaction_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
-            .begin();
+            .begin()?;
         let first_page_id = catalog.get_first_page_id_by_table_name("test", txn_id)?;
         let schema = catalog.get_schema_by_table_name("test", txn_id)?;
         let table_heap = TableHeap::new(
@@ -445,6 +491,7 @@ mod tests {
             buffer_pool_manager.clone(),
             transaction_manager.clone(),
             lock_manager.clone(),
+            log_manager.clone(),
             txn_id,
         );
         for tuple in table_heap.iter() {
