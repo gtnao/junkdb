@@ -9,6 +9,7 @@ pub mod executor;
 pub mod instance;
 pub mod lexer;
 pub mod lock;
+pub mod log;
 pub mod page;
 pub mod parser;
 pub mod plan;

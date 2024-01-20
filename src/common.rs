@@ -9,3 +9,6 @@ pub const INVALID_TRANSACTION_ID: TransactionID = TransactionID(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RID(pub PageID, pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LSN(pub u64);
