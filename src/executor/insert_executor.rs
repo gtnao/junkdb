@@ -32,6 +32,9 @@ impl InsertExecutor<'_> {
                     &vec![&Tuple::new(None, &[])],
                     &vec![&Schema { columns: vec![] }],
                 )?;
+                if raw_value.is_null_value() {
+                    return Ok(Value::Null);
+                }
                 raw_value.convert_to(&c.data_type)
             })
             .collect::<Result<Vec<_>>>()?;
