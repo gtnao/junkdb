@@ -44,7 +44,7 @@ impl TableHeap {
         }
     }
     pub fn insert(&mut self, values: &[Value]) -> Result<()> {
-        let tuple_data = Tuple::serialize(self.txn_id, INVALID_TRANSACTION_ID, &values);
+        let tuple_data = Tuple::serialize(self.txn_id, INVALID_TRANSACTION_ID, values);
         let mut page_id = self.first_page_id;
         loop {
             let page = self

@@ -64,8 +64,7 @@ impl Tuple {
     pub fn serialize(xmin: TransactionID, xmax: TransactionID, values: &[Value]) -> Box<[u8]> {
         let values_bytes = values
             .iter()
-            .map(|v| v.serialize().to_vec())
-            .flatten()
+            .flat_map(|v| v.serialize().to_vec())
             .collect::<Vec<u8>>();
         let mut bytes = Vec::with_capacity(
             HEADER_SIZE + Self::null_bitmap_size(values.len()) + values_bytes.len(),

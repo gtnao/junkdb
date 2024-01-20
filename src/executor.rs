@@ -57,7 +57,7 @@ impl ExecutorEngine {
         let mut tuple = executor.next()?;
         let mut result = vec![];
         while let Some(t) = &tuple {
-            result.push(t.values(&self.plan.schema()));
+            result.push(t.values(self.plan.schema()));
             tuple = executor.next()?;
         }
         Ok(result)
@@ -91,7 +91,7 @@ impl ExecutorEngine {
                 let children = plan
                     .children
                     .iter()
-                    .map(|child| Box::new(self.create_executor(child)))
+                    .map(|child| self.create_executor(child))
                     .collect::<Vec<_>>();
                 Executor::NestedLoopJoin(NestedLoopJoinExecutor {
                     plan: plan.clone(),
@@ -111,7 +111,7 @@ impl ExecutorEngine {
                     plan: plan.clone(),
                     child: Box::new(self.create_executor(&plan.child)),
                     executor_context: &self.context,
-                    aggregate_table_value: if plan.group_by.len() == 0 {
+                    aggregate_table_value: if plan.group_by.is_empty() {
                         AggregateTableValue::Value(vec![vec![]; plan.aggregate_functions.len()])
                     } else {
                         AggregateTableValue::Table(AggregateTable::new())
@@ -216,7 +216,7 @@ impl Executor<'_> {
             Executor::Update(executor) => executor.init(),
         }
     }
-    pub fn next(&mut self) -> Result<Option<Tuple>> {
+    pub(crate) fn next(&mut self) -> Result<Option<Tuple>> {
         match self {
             Executor::SeqScan(executor) => executor.next(),
             Executor::Filter(executor) => executor.next(),

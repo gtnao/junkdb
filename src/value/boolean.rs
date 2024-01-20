@@ -9,7 +9,7 @@ pub struct BooleanValue(pub bool);
 
 impl From<&[u8]> for BooleanValue {
     fn from(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= 1);
+        assert!(!bytes.is_empty());
         BooleanValue(bytes[0] != 0)
     }
 }

@@ -36,8 +36,8 @@ impl SortExecutor<'_> {
             .collect::<Result<Vec<usize>>>()?;
         result.sort_by(|a, b| {
             for (i, order_by_element) in self.plan.order_by.iter().enumerate() {
-                let a_values = a.values(&self.plan.child.schema());
-                let b_values = b.values(&self.plan.child.schema());
+                let a_values = a.values(self.plan.child.schema());
+                let b_values = b.values(self.plan.child.schema());
                 let a_value = &a_values[indexes[i]];
                 let b_value = &b_values[indexes[i]];
                 let cmp = match order_by_element.order {

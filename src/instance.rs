@@ -135,11 +135,10 @@ impl Instance {
         if let Some(txn_id) = txn_id {
             return Ok(txn_id);
         }
-        Ok(self
-            .transaction_manager
+        self.transaction_manager
             .lock()
             .map_err(|e| anyhow::anyhow!("{}", e))?
-            .begin()?)
+            .begin()
     }
     pub fn commit(&self, txn_id: TransactionID) -> Result<()> {
         self.transaction_manager

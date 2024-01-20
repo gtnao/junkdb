@@ -352,7 +352,7 @@ impl Parser {
         } else {
             TableReferenceAST::Base(self.base_table_reference()?)
         };
-        Ok(self.recursive_visit_table_reference(left)?)
+        self.recursive_visit_table_reference(left)
     }
     fn base_table_reference(&mut self) -> Result<BaseTableReferenceAST> {
         let table_name = self.identifier()?;
@@ -550,7 +550,7 @@ impl Parser {
                 return Err(anyhow!("invalid expression"));
             }
         } else {
-            return Ok(left?);
+            return left;
         };
         let right = self.function_call_expression()?;
         Ok(ExpressionAST::Binary(BinaryExpressionAST {
@@ -676,10 +676,7 @@ impl Parser {
         self.tokens[self.position + 1] == token
     }
     fn match_identifier(&mut self) -> bool {
-        match self.tokens[self.position] {
-            Token::Identifier(_) => true,
-            _ => false,
-        }
+        matches!(self.tokens[self.position], Token::Identifier(_))
     }
     fn consume_token(&mut self, token: Token) -> bool {
         if self.match_token(token) {

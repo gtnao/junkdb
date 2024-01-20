@@ -25,7 +25,7 @@ pub struct LockManager {
     rids_by_txn_id: RwLock<HashMap<TransactionID, Vec<RID>>>,
 }
 
-impl<'a> Default for LockManager {
+impl Default for LockManager {
     fn default() -> Self {
         Self {
             lock_requests_by_rid: RwLock::new(HashMap::new()),
@@ -84,7 +84,7 @@ impl LockManager {
                 .lock_requests_by_rid
                 .read()
                 .map_err(|_| anyhow!("lock error"))?;
-            if let Some(request) = requests.get(&rid) {
+            if let Some(request) = requests.get(rid) {
                 let mut locked_txn_id = request.txn_id.lock().map_err(|_| anyhow!("lock error"))?;
                 locked_txn_id.take();
                 request.condvar.notify_all();

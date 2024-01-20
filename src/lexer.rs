@@ -122,7 +122,7 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                 let mut ret = String::new();
                 loop {
                     match iter.peek() {
-                        Some(cc) if '_' == *cc || cc.is_digit(10) || cc.is_alphabetic() => {
+                        Some(cc) if '_' == *cc || cc.is_ascii_digit() || cc.is_alphabetic() => {
                             ret.push(*cc);
                             iter.next();
                         }
@@ -131,7 +131,7 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                         }
                     }
                 }
-                if let Some(keyword) = Keyword::try_from(&*ret).ok() {
+                if let Ok(keyword) = Keyword::try_from(&*ret) {
                     tokens.push(Token::Keyword(keyword));
                 } else {
                     match &*ret.to_uppercase() {
@@ -170,7 +170,7 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                     }
                 }
             }
-            Some(c) if vec![',', '.', '(', ')', '*', ';', '=', '+', '/', '%'].contains(c) => {
+            Some(c) if [',', '.', '(', ')', '*', ';', '=', '+', '/', '%'].contains(c) => {
                 tokens.push(match *c {
                     ',' => Token::Comma,
                     '.' => Token::Dot,
@@ -189,11 +189,11 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
             Some(c) if *c == '-' => {
                 iter.next();
                 if let Some(cc) = iter.peek() {
-                    if cc.is_digit(10) {
+                    if cc.is_ascii_digit() {
                         let mut ret = String::new();
                         loop {
                             match iter.peek() {
-                                Some(ccc) if ccc.is_digit(10) => {
+                                Some(ccc) if ccc.is_ascii_digit() => {
                                     ret.push(*ccc);
                                     iter.next();
                                 }
@@ -214,11 +214,11 @@ pub fn tokenize(iter: &mut Peekable<Chars>) -> Result<Vec<Token>> {
                     tokens.push(Token::Minus);
                 }
             }
-            Some(c) if c.is_digit(10) => {
+            Some(c) if c.is_ascii_digit() => {
                 let mut ret = String::new();
                 loop {
                     match iter.peek() {
-                        Some(cc) if cc.is_digit(10) => {
+                        Some(cc) if cc.is_ascii_digit() => {
                             ret.push(*cc);
                             iter.next();
                         }

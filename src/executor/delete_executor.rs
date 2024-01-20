@@ -20,7 +20,7 @@ pub struct DeleteExecutor<'a> {
 }
 
 impl DeleteExecutor<'_> {
-    pub fn init<'a>(&mut self) -> Result<()> {
+    pub fn init(&mut self) -> Result<()> {
         self.child.init()?;
         while let Some(row) = self.child.next()? {
             let rid = row.rid.ok_or_else(|| anyhow!("rid is None"))?;

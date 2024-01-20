@@ -68,7 +68,7 @@ impl AggregateExecutor<'_> {
 }
 
 pub struct AggregateTable {
-    map: Box<HashMap<Value, AggregateTableValue>>,
+    map: HashMap<Value, AggregateTableValue>,
 }
 pub enum AggregateTableValue {
     Table(AggregateTable),
@@ -77,7 +77,7 @@ pub enum AggregateTableValue {
 impl AggregateTable {
     pub fn new() -> Self {
         Self {
-            map: Box::new(HashMap::new()),
+            map: HashMap::new(),
         }
     }
     fn add(&mut self, keys: Vec<Value>, value: Value, function_index: usize, function_max: usize) {
@@ -101,6 +101,12 @@ impl AggregateTable {
                 }
             }
         }
+    }
+}
+
+impl Default for AggregateTable {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

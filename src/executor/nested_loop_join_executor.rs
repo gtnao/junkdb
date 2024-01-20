@@ -13,7 +13,7 @@ use super::{Executor, ExecutorContext};
 
 pub struct NestedLoopJoinExecutor<'a> {
     pub plan: NestedLoopJoinPlan,
-    pub children: Vec<Box<Executor<'a>>>,
+    pub children: Vec<Executor<'a>>,
     pub tuples: Vec<Option<Tuple>>,
     pub executor_context: &'a ExecutorContext,
     // TODO: other implementation
@@ -35,7 +35,7 @@ impl NestedLoopJoinExecutor<'_> {
             res.reverse();
             let mut values_list = vec![];
             for (i, tuple) in res.iter().enumerate() {
-                let values = tuple.values(&self.plan.children[i].schema());
+                let values = tuple.values(self.plan.children[i].schema());
                 values_list.push(values);
             }
             let values = values_list.into_iter().flatten().collect::<Vec<_>>();
@@ -53,7 +53,7 @@ impl NestedLoopJoinExecutor<'_> {
                 if self.plan.join_types[depth - 1] == JoinType::Left
                     && self.in_guard_statuses[depth - 1]
                 {
-                    let v = replace(&mut self.tuples[depth], None);
+                    let v = self.tuples[depth].take();
                     self.in_guard_statuses[depth - 1] = false;
                     return Ok(Some(vec![v.unwrap()]));
                 }
@@ -138,7 +138,7 @@ impl NestedLoopJoinExecutor<'_> {
                     || Ok(true),
                     |condition| {
                         // for left join dummy tuple
-                        let dummy = Tuple::temp_tuple(&vec![]);
+                        let dummy = Tuple::temp_tuple(&[]);
                         let tuples = self
                             .tuples
                             .iter()

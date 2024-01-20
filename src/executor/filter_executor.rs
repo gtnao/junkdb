@@ -15,7 +15,7 @@ pub struct FilterExecutor<'a> {
 }
 
 impl FilterExecutor<'_> {
-    pub fn init<'a>(&mut self) -> Result<()> {
+    pub fn init(&mut self) -> Result<()> {
         self.child.init()?;
         Ok(())
     }

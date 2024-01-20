@@ -226,16 +226,16 @@ impl Binder {
             .iter()
             .map(|function| self.bind_function_call_expression(function))
             .collect::<Result<Vec<_>>>()?;
-        let needs_aggregation = group_by.len() > 0 || bound_aggregate_functions.len() > 0;
+        let needs_aggregation = !group_by.is_empty() || !bound_aggregate_functions.is_empty();
         if needs_aggregation {
-            self.replace_scope_by_aggregation(&group_by, &aggregate_functions);
+            self.replace_scope_by_aggregation(&group_by, aggregate_functions);
         }
         let having = match &statement.having {
             Some(having) => Some(self.bind_expression(having)?),
             None => None,
         };
         let select_elements = self.bind_select_elements(&statement.select_elements)?;
-        if select_elements.len() > 0 {
+        if !select_elements.is_empty() {
             let scopes_len = self.scopes.len();
             self.scopes[scopes_len - 1].tables.clear();
             self.scopes[scopes_len - 1].aggregation = None;
@@ -686,7 +686,7 @@ impl Binder {
                 .filter(|(_, table_name)| table_name == &&expression.path[0])
                 .map(|(i, _)| i)
                 .collect::<Vec<_>>();
-            if matched_table_indexes.len() == 0 {
+            if matched_table_indexes.is_empty() {
                 return Err(anyhow::anyhow!("table {} not found", expression.path[0]));
             }
             if matched_table_indexes.len() > 1 {
@@ -724,19 +724,18 @@ impl Binder {
     ) -> Result<Vec<FunctionCallExpressionAST>> {
         let mut aggregate_functions = Vec::new();
         if let Some(having) = having {
-            let mut functions = self.extract_aggregate_functions_from_expression(having)?;
+            let mut functions = Self::extract_aggregate_functions_from_expression(having)?;
             aggregate_functions.append(&mut functions);
         }
         for select_element in select_elements {
             let mut functions =
-                self.extract_aggregate_functions_from_expression(&select_element.expression)?;
+                Self::extract_aggregate_functions_from_expression(&select_element.expression)?;
             aggregate_functions.append(&mut functions);
         }
         Ok(aggregate_functions)
     }
 
     fn extract_aggregate_functions_from_expression(
-        &mut self,
         expression: &ExpressionAST,
     ) -> Result<Vec<FunctionCallExpressionAST>> {
         match expression {
@@ -750,13 +749,12 @@ impl Binder {
             ExpressionAST::Path(_) => Ok(Vec::new()),
             ExpressionAST::Literal(_) => Ok(Vec::new()),
             ExpressionAST::Unary(expression) => {
-                self.extract_aggregate_functions_from_expression(&expression.operand)
+                Self::extract_aggregate_functions_from_expression(&expression.operand)
             }
             ExpressionAST::Binary(expression) => {
-                let mut left =
-                    self.extract_aggregate_functions_from_expression(&expression.left)?;
+                let mut left = Self::extract_aggregate_functions_from_expression(&expression.left)?;
                 let mut right =
-                    self.extract_aggregate_functions_from_expression(&expression.right)?;
+                    Self::extract_aggregate_functions_from_expression(&expression.right)?;
                 left.append(&mut right);
                 Ok(left)
             }
@@ -766,7 +764,7 @@ impl Binder {
     fn replace_scope_by_aggregation(
         &mut self,
         group_by: &Vec<BoundExpressionAST>,
-        aggregate_functions: &Vec<FunctionCallExpressionAST>,
+        aggregate_functions: Vec<FunctionCallExpressionAST>,
     ) {
         let mut group_by_items = Vec::new();
         for expression in group_by {

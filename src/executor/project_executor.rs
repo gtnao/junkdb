@@ -11,7 +11,7 @@ pub struct ProjectExecutor<'a> {
 }
 
 impl ProjectExecutor<'_> {
-    pub fn init<'a>(&mut self) -> Result<()> {
+    pub fn init(&mut self) -> Result<()> {
         self.child.init()?;
         Ok(())
     }

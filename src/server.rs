@@ -28,7 +28,7 @@ pub fn server_start(init: bool, recover: bool) -> Result<()> {
     let instance_clone = instance.clone();
     let mut signals = Signals::new(TERM_SIGNALS)?;
     thread::spawn(move || {
-        for _ in signals.forever() {
+        signals.forever().for_each(|_| {
             println!("junkdb server shutdown...");
             if let Ok(instance) = instance_clone.read() {
                 if let Err(e) = instance.shutdown() {
@@ -40,7 +40,7 @@ pub fn server_start(init: bool, recover: bool) -> Result<()> {
                 std::process::exit(1);
             }
             std::process::exit(0);
-        }
+        });
     });
 
     // listen
@@ -86,9 +86,7 @@ impl Session {
     }
     fn read(&mut self) -> Result<String> {
         match read_from_stream(&mut self.stream) {
-            Ok(request) => {
-                return Ok(request);
-            }
+            Ok(request) => Ok(request),
             Err(e) => {
                 self.rollback()?;
                 if let Some(io_err) = e.downcast_ref::<io::Error>() {
@@ -98,15 +96,13 @@ impl Session {
                     }
                 }
                 println!("read error: {}", e);
-                return Err(e);
+                Err(e)
             }
         }
     }
     fn write(&mut self, response: &str) -> Result<()> {
-        match write_to_stream(&mut self.stream, &response) {
-            Ok(_) => {
-                return Ok(());
-            }
+        match write_to_stream(&mut self.stream, response) {
+            Ok(_) => Ok(()),
             Err(e) => {
                 self.rollback()?;
                 if let Some(io_err) = e.downcast_ref::<io::Error>() {
@@ -116,7 +112,7 @@ impl Session {
                     }
                 }
                 println!("write error: {}", e);
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -145,7 +141,7 @@ impl Session {
                     .map_err(|_| anyhow!("lock error"))?
                     .begin(self.current_txn_id)?;
                 self.current_txn_id = Some(txn_id);
-                format!("transaction started.")
+                "transaction started.".to_string()
             }
             _ => {
                 let txn_id_existed = self.current_txn_id.is_some();
@@ -166,7 +162,7 @@ impl Session {
                             .map_err(|_| anyhow!("lock error"))?
                             .commit(txn_id)?;
                         self.current_txn_id = None;
-                        format!("transaction committed.")
+                        "transaction committed.".to_string()
                     }
                     StatementAST::Rollback => {
                         self.instance
@@ -174,7 +170,7 @@ impl Session {
                             .map_err(|_| anyhow!("lock error"))?
                             .rollback(txn_id)?;
                         self.current_txn_id = None;
-                        format!("transaction rolled back.")
+                        "transaction rolled back.".to_string()
                     }
                     StatementAST::CreateTable(ast) => {
                         self.instance
@@ -222,7 +218,7 @@ impl Session {
 }
 
 pub fn write_to_stream(stream: &mut TcpStream, response: &str) -> Result<()> {
-    stream.write(&(response.len() as u32).to_be_bytes())?;
+    stream.write_all(&(response.len() as u32).to_be_bytes())?;
     stream.write_all(response.as_bytes())?;
     stream.flush()?;
     Ok(())

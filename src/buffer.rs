@@ -59,20 +59,23 @@ impl BufferPoolManager {
             size,
             frames: Vec::with_capacity(size),
             page_table: HashMap::new(),
-            replacer: Replacer::LRU(LRUReplacer::default()),
+            replacer: Replacer::Lru(LRUReplacer::default()),
         }
     }
     pub fn fetch_page(&mut self, page_id: PageID) -> Result<Arc<RwLock<Page>>> {
-        if !self.page_table.contains_key(&page_id) {
-            if self.is_full() {
-                self.evict_page()?;
+        match self.page_table.contains_key(&page_id) {
+            true => (),
+            false => {
+                if self.is_full() {
+                    self.evict_page()?;
+                }
+                let mut data = vec![0u8; PAGE_SIZE];
+                self.disk_manager.read_page(page_id, &mut data)?;
+                let page = Arc::new(RwLock::new(Page::from_data(&data)));
+                let frame_id = self.frames.len();
+                self.frames.push(Some(Frame::new(page.clone())));
+                self.page_table.insert(page_id, frame_id);
             }
-            let mut data = vec![0u8; PAGE_SIZE];
-            self.disk_manager.read_page(page_id, &mut data)?;
-            let page = Arc::new(RwLock::new(Page::from_data(&data)));
-            let frame_id = self.frames.len();
-            self.frames.push(Some(Frame::new(page.clone())));
-            self.page_table.insert(page_id, frame_id);
         }
         if let Some(&frame_id) = self.page_table.get(&page_id) {
             if let Some(frame) = &mut self.frames[frame_id] {
@@ -157,7 +160,7 @@ impl BufferPoolManager {
                         .lock()
                         .map_err(|_| anyhow!("lock error"))?
                         .flush()?;
-                    self.disk_manager.write_page(page_id, &page.data())?;
+                    self.disk_manager.write_page(page_id, page.data())?;
                 }
             }
         }
@@ -186,38 +189,32 @@ impl BufferPoolManager {
 }
 
 enum Replacer {
-    LRU(LRUReplacer),
+    Lru(LRUReplacer),
 }
 impl Replacer {
     pub fn victim(&mut self) -> Option<usize> {
         match self {
-            Self::LRU(replacer) => replacer.victim(),
+            Self::Lru(replacer) => replacer.victim(),
         }
     }
     pub fn pin(&mut self, frame_id: usize) {
         match self {
-            Self::LRU(replacer) => replacer.pin(frame_id),
+            Self::Lru(replacer) => replacer.pin(frame_id),
         }
     }
     pub fn unpin(&mut self, frame_id: usize) {
         match self {
-            Self::LRU(replacer) => replacer.unpin(frame_id),
+            Self::Lru(replacer) => replacer.unpin(frame_id),
         }
     }
 }
 
+#[derive(Default)]
 struct LRUReplacer {
     frame_map: HashMap<usize, u128>,
     counter: u128,
 }
-impl Default for LRUReplacer {
-    fn default() -> Self {
-        Self {
-            frame_map: HashMap::new(),
-            counter: 0,
-        }
-    }
-}
+
 impl LRUReplacer {
     fn victim(&mut self) -> Option<usize> {
         if self.frame_map.is_empty() {
@@ -251,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_lru_replacer() {
-        let mut replacer = Replacer::LRU(LRUReplacer::default());
+        let mut replacer = Replacer::Lru(LRUReplacer::default());
 
         assert_eq!(replacer.victim(), None);
         replacer.pin(1);

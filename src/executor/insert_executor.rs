@@ -29,7 +29,7 @@ impl InsertExecutor<'_> {
             .enumerate()
             .map(|(i, c)| {
                 let raw_value = self.plan.values[i].eval(
-                    &vec![&Tuple::new(None, &vec![])],
+                    &vec![&Tuple::new(None, &[])],
                     &vec![&Schema { columns: vec![] }],
                 )?;
                 raw_value.convert_to(&c.data_type)

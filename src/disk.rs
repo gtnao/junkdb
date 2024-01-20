@@ -27,14 +27,14 @@ impl DiskManager {
         })
     }
     pub fn read_page(&mut self, page_id: PageID, data: &mut [u8]) -> Result<()> {
-        assert!(data.len() == PAGE_SIZE as usize);
+        assert!(data.len() == PAGE_SIZE);
         let offset = (page_id.0 - 1) as u64 * PAGE_SIZE as u64;
         self.data_file.seek(SeekFrom::Start(offset))?;
         self.data_file.read_exact(data)?;
         Ok(())
     }
     pub fn write_page(&mut self, page_id: PageID, data: &[u8]) -> Result<()> {
-        assert!(data.len() == PAGE_SIZE as usize);
+        assert!(data.len() == PAGE_SIZE);
         let offset = (page_id.0 - 1) as u64 * PAGE_SIZE as u64;
         self.data_file.seek(SeekFrom::Start(offset))?;
         self.data_file.write_all(data)?;
@@ -43,7 +43,7 @@ impl DiskManager {
     }
     pub fn allocate_page(&mut self) -> Result<PageID> {
         self.data_file.seek(SeekFrom::End(0))?;
-        self.data_file.write_all(&[0; PAGE_SIZE as usize])?;
+        self.data_file.write_all(&[0; PAGE_SIZE])?;
         self.data_file.sync_all()?;
         let page_id = self.next_page_id;
         self.next_page_id.0 += 1;
@@ -62,17 +62,17 @@ mod tests {
         let data_file_path = dir.path().join("data");
         let mut disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
 
-        let write_data1 = vec![1; PAGE_SIZE as usize];
+        let write_data1 = vec![1; PAGE_SIZE];
         disk_manager.write_page(PageID(1), &write_data1)?;
-        let write_data2 = vec![2; PAGE_SIZE as usize];
+        let write_data2 = vec![2; PAGE_SIZE];
         disk_manager.write_page(PageID(2), &write_data2)?;
 
-        let mut read_data1 = vec![0; PAGE_SIZE as usize];
+        let mut read_data1 = vec![0; PAGE_SIZE];
         disk_manager.read_page(PageID(1), &mut read_data1)?;
-        let mut read_data2 = vec![0; PAGE_SIZE as usize];
+        let mut read_data2 = vec![0; PAGE_SIZE];
         disk_manager.read_page(PageID(2), &mut read_data2)?;
-        assert_eq!(read_data1, vec![1; PAGE_SIZE as usize]);
-        assert_eq!(read_data2, vec![2; PAGE_SIZE as usize]);
+        assert_eq!(read_data1, vec![1; PAGE_SIZE]);
+        assert_eq!(read_data2, vec![2; PAGE_SIZE]);
 
         Ok(())
     }
@@ -83,7 +83,7 @@ mod tests {
         let data_file_path = dir.path().join("data");
         let mut disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
 
-        let mut read_data = vec![0; PAGE_SIZE as usize];
+        let mut read_data = vec![0; PAGE_SIZE];
         let result = disk_manager.read_page(PageID(1), &mut read_data);
         assert!(result.is_err());
 
@@ -99,13 +99,13 @@ mod tests {
         let data_file_path = dir.path().join("data");
         let mut disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
 
-        let write_data = vec![1; PAGE_SIZE as usize];
+        let write_data = vec![1; PAGE_SIZE];
         disk_manager.write_page(PageID(1), &write_data)?;
 
         let mut disk_manager = DiskManager::new(data_file_path.to_str().unwrap())?;
-        let mut read_data = vec![0; PAGE_SIZE as usize];
+        let mut read_data = vec![0; PAGE_SIZE];
         disk_manager.read_page(PageID(1), &mut read_data)?;
-        assert_eq!(read_data, vec![1; PAGE_SIZE as usize]);
+        assert_eq!(read_data, vec![1; PAGE_SIZE]);
 
         Ok(())
     }

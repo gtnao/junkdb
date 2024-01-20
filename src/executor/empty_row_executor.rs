@@ -19,7 +19,7 @@ impl EmptyRowExecutor<'_> {
             Ok(None)
         } else {
             self.returned = true;
-            Ok(Some(Tuple::temp_tuple(&vec![])))
+            Ok(Some(Tuple::temp_tuple(&[])))
         }
     }
 }
