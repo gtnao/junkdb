@@ -1,4 +1,7 @@
-use std::fmt::{Display, Formatter};
+use std::{
+    cmp::Ordering,
+    fmt::{Display, Formatter},
+};
 
 use anyhow::{anyhow, Result};
 
@@ -137,56 +140,76 @@ impl Value {
         if self.is_null_value() || other.is_null_value() {
             return Ok(Value::Null);
         }
-        match self.convert_to(&DataType::Integer)? {
-            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
-                Value::Integer(other_value) => {
-                    Ok(Value::Boolean(value.perform_less_than(&other_value)))
-                }
+        match (self, other) {
+            (Value::Varchar(value), Value::Varchar(other_value)) => {
+                Ok(Value::Boolean(value.perform_less_than(other_value)))
+            }
+            _ => match self.convert_to(&DataType::Integer)? {
+                Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                    Value::Integer(other_value) => {
+                        Ok(Value::Boolean(value.perform_less_than(&other_value)))
+                    }
+                    _ => unreachable!(),
+                },
                 _ => unreachable!(),
             },
-            _ => unreachable!(),
         }
     }
     pub fn perform_less_than_or_equal(&self, other: &Value) -> Result<Value> {
         if self.is_null_value() || other.is_null_value() {
             return Ok(Value::Null);
         }
-        match self.convert_to(&DataType::Integer)? {
-            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
-                Value::Integer(other_value) => Ok(Value::Boolean(
-                    value.perform_less_than_or_equal(&other_value),
-                )),
+        match (self, other) {
+            (Value::Varchar(value), Value::Varchar(other_value)) => Ok(Value::Boolean(
+                value.perform_less_than_or_equal(other_value),
+            )),
+            _ => match self.convert_to(&DataType::Integer)? {
+                Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                    Value::Integer(other_value) => Ok(Value::Boolean(
+                        value.perform_less_than_or_equal(&other_value),
+                    )),
+                    _ => unreachable!(),
+                },
                 _ => unreachable!(),
             },
-            _ => unreachable!(),
         }
     }
     pub fn perform_greater_than(&self, other: &Value) -> Result<Value> {
         if self.is_null_value() || other.is_null_value() {
             return Ok(Value::Null);
         }
-        match self.convert_to(&DataType::Integer)? {
-            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
-                Value::Integer(other_value) => {
-                    Ok(Value::Boolean(value.perform_greater_than(&other_value)))
-                }
+        match (self, other) {
+            (Value::Varchar(value), Value::Varchar(other_value)) => {
+                Ok(Value::Boolean(value.perform_greater_than(other_value)))
+            }
+            _ => match self.convert_to(&DataType::Integer)? {
+                Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                    Value::Integer(other_value) => {
+                        Ok(Value::Boolean(value.perform_greater_than(&other_value)))
+                    }
+                    _ => unreachable!(),
+                },
                 _ => unreachable!(),
             },
-            _ => unreachable!(),
         }
     }
     pub fn perform_greater_than_or_equal(&self, other: &Value) -> Result<Value> {
         if self.is_null_value() || other.is_null_value() {
             return Ok(Value::Null);
         }
-        match self.convert_to(&DataType::Integer)? {
-            Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
-                Value::Integer(other_value) => Ok(Value::Boolean(
-                    value.perform_greater_than_or_equal(&other_value),
-                )),
+        match (self, other) {
+            (Value::Varchar(value), Value::Varchar(other_value)) => Ok(Value::Boolean(
+                value.perform_greater_than_or_equal(other_value),
+            )),
+            _ => match self.convert_to(&DataType::Integer)? {
+                Value::Integer(value) => match other.convert_to(&DataType::Integer)? {
+                    Value::Integer(other_value) => Ok(Value::Boolean(
+                        value.perform_greater_than_or_equal(&other_value),
+                    )),
+                    _ => unreachable!(),
+                },
                 _ => unreachable!(),
             },
-            _ => unreachable!(),
         }
     }
 
@@ -286,6 +309,40 @@ impl Value {
 
     pub fn is_null_value(&self) -> bool {
         matches!(self, Value::Null)
+    }
+    pub fn is_true(&self) -> bool {
+        match self {
+            Value::Boolean(value) => value.0,
+            _ => unreachable!(),
+        }
+    }
+    pub fn is_false(&self) -> bool {
+        match self {
+            Value::Boolean(value) => !value.0,
+            _ => unreachable!(),
+        }
+    }
+    pub fn compare_values(a: &[Value], b: &[Value]) -> Result<Ordering> {
+        for (a_item, b_item) in a.iter().zip(b.iter()) {
+            if a_item.is_null_value() || b_item.is_null_value() {
+                if a_item.is_null_value() && b_item.is_null_value() {
+                    continue;
+                }
+                if a_item.is_null_value() {
+                    return Ok(Ordering::Less);
+                }
+                if b_item.is_null_value() {
+                    return Ok(Ordering::Greater);
+                }
+            }
+            if a_item.perform_greater_than(b_item)?.is_true() {
+                return Ok(Ordering::Greater);
+            }
+            if a_item.perform_less_than(b_item)?.is_true() {
+                return Ok(Ordering::Less);
+            }
+        }
+        Ok(Ordering::Equal)
     }
 }
 

@@ -2,6 +2,8 @@ use crate::common::PageID;
 
 use self::table_page::{TablePage, TABLE_PAGE_PAGE_TYPE};
 
+pub mod b_plus_tree_internal_page;
+pub mod b_plus_tree_leaf_page;
 pub mod table_page;
 
 const PAGE_TYPE_OFFSET: usize = 0;

@@ -49,4 +49,16 @@ impl VarcharValue {
     pub fn perform_not_equal(&self, other: &VarcharValue) -> BooleanValue {
         BooleanValue(self.0 != other.0)
     }
+    pub fn perform_less_than(&self, other: &VarcharValue) -> BooleanValue {
+        BooleanValue(self.0 < other.0)
+    }
+    pub fn perform_less_than_or_equal(&self, other: &VarcharValue) -> BooleanValue {
+        BooleanValue(self.0 <= other.0)
+    }
+    pub fn perform_greater_than(&self, other: &VarcharValue) -> BooleanValue {
+        BooleanValue(self.0 > other.0)
+    }
+    pub fn perform_greater_than_or_equal(&self, other: &VarcharValue) -> BooleanValue {
+        BooleanValue(self.0 >= other.0)
+    }
 }

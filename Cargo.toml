@@ -12,4 +12,5 @@ prettytable-rs = "0.10.0"
 signal-hook = "0.3.17"
 
 [dev-dependencies]
+itertools = "0.12.0"
 tempfile = "3.9.0"
