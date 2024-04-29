@@ -33,6 +33,7 @@ pub enum Token {
 pub enum Keyword {
     Create,
     Table,
+    Index,
     Insert,
     Into,
     Values,
@@ -73,6 +74,7 @@ impl TryFrom<&str> for Keyword {
         match &*s.to_uppercase() {
             "CREATE" => Ok(Keyword::Create),
             "TABLE" => Ok(Keyword::Table),
+            "INDEX" => Ok(Keyword::Index),
             "INSERT" => Ok(Keyword::Insert),
             "INTO" => Ok(Keyword::Into),
             "VALUES" => Ok(Keyword::Values),
@@ -306,7 +308,7 @@ mod tests {
     #[test]
     fn test_all_keywords() -> Result<()> {
         let text = r#"
-            CREATE table Insert INTO VALUES DELETE FROM WHERE UPDATE SET
+            CREATE table Index INSERT INTO VALUES DELETE FROM WHERE UPDATE SET
             SELECT INNER LEFT JOIN ON GROUP BY HAVING ORDER ASC
             DESC LIMIT OFFSET INT INTEGER VARCHAR BOOLEAN BEGIN
             COMMIT ROLLBACK AS AND OR NOT IS
@@ -318,6 +320,7 @@ mod tests {
             vec![
                 Token::Keyword(Keyword::Create),
                 Token::Keyword(Keyword::Table),
+                Token::Keyword(Keyword::Index),
                 Token::Keyword(Keyword::Insert),
                 Token::Keyword(Keyword::Into),
                 Token::Keyword(Keyword::Values),

@@ -9,6 +9,7 @@ use crate::{
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum StatementAST {
     CreateTable(CreateTableStatementAST),
+    CreateIndex(CreateIndexStatementAST),
     Select(SelectStatementAST),
     Insert(InsertStatementAST),
     Delete(DeleteStatementAST),
@@ -26,6 +27,12 @@ pub struct CreateTableStatementAST {
 pub struct TableElementAST {
     pub column_name: String,
     pub data_type: DataType,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CreateIndexStatementAST {
+    pub index_name: String,
+    pub table_name: String,
+    pub column_names: Vec<String>,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SelectStatementAST {
@@ -186,6 +193,11 @@ impl Parser {
         {
             return Ok(StatementAST::CreateTable(self.create_table_statement()?));
         }
+        if self.match_token(Token::Keyword(Keyword::Create))
+            && self.match_look_ahead(Token::Keyword(Keyword::Index))
+        {
+            return Ok(StatementAST::CreateIndex(self.create_index_statement()?));
+        }
         if self.match_token(Token::Keyword(Keyword::Select)) {
             return Ok(StatementAST::Select(self.select_statement()?));
         }
@@ -258,6 +270,27 @@ impl Parser {
             }
             _ => Err(anyhow!("invalid data type")),
         }
+    }
+    fn create_index_statement(&mut self) -> Result<CreateIndexStatementAST> {
+        self.consume_token_or_error(Token::Keyword(Keyword::Create))?;
+        self.consume_token_or_error(Token::Keyword(Keyword::Index))?;
+        let index_name = self.identifier()?;
+        self.consume_token_or_error(Token::Keyword(Keyword::On))?;
+        let table_name = self.identifier()?;
+        self.consume_token_or_error(Token::LeftParen)?;
+        let mut column_names = Vec::new();
+        loop {
+            column_names.push(self.identifier()?);
+            if !self.consume_token(Token::Comma) {
+                break;
+            }
+        }
+        self.consume_token_or_error(Token::RightParen)?;
+        Ok(CreateIndexStatementAST {
+            index_name,
+            table_name,
+            column_names,
+        })
     }
     fn select_statement(&mut self) -> Result<SelectStatementAST> {
         self.consume_token_or_error(Token::Keyword(Keyword::Select))?;
@@ -741,6 +774,25 @@ mod tests {
                         data_type: DataType::Boolean,
                     },
                 ],
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_create_index() -> Result<()> {
+        let sql = r#"
+            CREATE INDEX id_name_index ON users (id, name);
+        "#;
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        assert_eq!(
+            statement,
+            StatementAST::CreateIndex(CreateIndexStatementAST {
+                index_name: String::from("id_name_index"),
+                table_name: String::from("users"),
+                column_names: vec![String::from("id"), String::from("name")],
             })
         );
         Ok(())

@@ -179,6 +179,12 @@ impl Session {
                             .create_table(&ast, txn_id)?;
                         format!("table {} created", ast.table_name)
                     }
+                    StatementAST::CreateIndex(ast) => {
+                        format!(
+                            "create index is not implemented yet ({:?}, {:?}, {:?})",
+                            ast.index_name, ast.table_name, ast.column_names
+                        )
+                    }
                     _ => {
                         let (rows, schema) = self
                             .instance
