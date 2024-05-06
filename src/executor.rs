@@ -13,6 +13,7 @@ use self::{
     delete_executor::DeleteExecutor,
     empty_row_executor::EmptyRowExecutor,
     filter_executor::FilterExecutor,
+    index_scan_executor::IndexScanExecutor,
     insert_executor::InsertExecutor,
     limit_executor::LimitExecutor,
     nested_loop_join_executor::NestedLoopJoinExecutor,
@@ -26,6 +27,7 @@ mod aggregate_executor;
 mod delete_executor;
 mod empty_row_executor;
 mod filter_executor;
+mod index_scan_executor;
 mod insert_executor;
 mod limit_executor;
 mod nested_loop_join_executor;
@@ -77,7 +79,11 @@ impl ExecutorEngine {
                 )
                 .iter(),
             }),
-            Plan::IndexScan(_) => unimplemented!(),
+            Plan::IndexScan(index_plan) => Executor::IndexScan(IndexScanExecutor {
+                plan: index_plan.clone(),
+                executor_context: &self.context,
+                index_id: index_plan.index_id,
+            }),
             Plan::Filter(filter_plan) => Executor::Filter(FilterExecutor {
                 plan: filter_plan.clone(),
                 child: Box::new(self.create_executor(&plan.children()[0])),
@@ -193,6 +199,7 @@ impl ExecutorEngine {
 
 pub enum Executor<'a> {
     SeqScan(SeqScanExecutor<'a>),
+    IndexScan(IndexScanExecutor<'a>),
     Filter(FilterExecutor<'a>),
     Project(ProjectExecutor<'a>),
     NestedLoopJoin(NestedLoopJoinExecutor<'a>),
@@ -208,6 +215,7 @@ impl Executor<'_> {
     pub fn init(&mut self) -> Result<()> {
         match self {
             Executor::SeqScan(executor) => executor.init(),
+            Executor::IndexScan(executor) => executor.init(),
             Executor::Filter(executor) => executor.init(),
             Executor::Project(executor) => executor.init(),
             Executor::NestedLoopJoin(executor) => executor.init(),
@@ -223,6 +231,7 @@ impl Executor<'_> {
     pub(crate) fn next(&mut self) -> Result<Option<Tuple>> {
         match self {
             Executor::SeqScan(executor) => executor.next(),
+            Executor::IndexScan(executor) => executor.next(),
             Executor::Filter(executor) => executor.next(),
             Executor::Project(executor) => executor.next(),
             Executor::NestedLoopJoin(executor) => executor.next(),

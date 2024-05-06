@@ -59,6 +59,24 @@ impl Plan {
             Plan::Update(plan) => vec![plan.child.clone()],
         }
     }
+    pub fn set_children(&mut self, children: Vec<Plan>) {
+        match self {
+            Plan::SeqScan(_) => {}
+            Plan::IndexScan(_) => {}
+            Plan::Filter(plan) => plan.child = Box::new(children[0].clone()),
+            Plan::Project(plan) => plan.child = Box::new(children[0].clone()),
+            Plan::NestedLoopJoin(plan) => {
+                plan.children = children.into_iter().map(Box::new).collect()
+            }
+            Plan::Aggregate(plan) => plan.child = Box::new(children[0].clone()),
+            Plan::Sort(plan) => plan.child = Box::new(children[0].clone()),
+            Plan::Limit(plan) => plan.child = Box::new(children[0].clone()),
+            Plan::EmptyRow(_) => {}
+            Plan::Insert(_) => {}
+            Plan::Delete(plan) => plan.child = Box::new(children[0].clone()),
+            Plan::Update(plan) => plan.child = Box::new(children[0].clone()),
+        }
+    }
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SeqScanPlan {
@@ -67,7 +85,7 @@ pub struct SeqScanPlan {
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IndexScanPlan {
-    pub root_page_id: PageID,
+    pub index_id: i64,
     pub schema: Schema,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]

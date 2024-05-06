@@ -6,6 +6,7 @@ use crate::{
     buffer::BufferPoolManager,
     common::{PageID, TransactionID},
     concurrency::TransactionManager,
+    index::Index,
     lock::LockManager,
     log::{LogManager, LogRecordBody, NewBPlusTreeLeafPage, NewTablePage},
     page::{
@@ -299,6 +300,61 @@ impl Catalog {
             }
         }
         Ok(schema)
+    }
+    pub fn get_index(&self, index_id: i64, txn_id: TransactionID) -> Result<Index> {
+        let system_indexes_table =
+            self.system_table_heap(PageID(SYSTEM_INDEXES_FIRST_PAGE_ID.0), txn_id);
+        for tuple in system_indexes_table.iter() {
+            let values = tuple.values(&Self::system_indexes_schema());
+            if let Value::Integer(IntegerValue(id)) = values[0] {
+                if id == index_id {
+                    return Ok(Index::from_system_table(values)?);
+                }
+            }
+        }
+        Err(anyhow::anyhow!("index not found"))
+    }
+    pub fn get_indexes_by_table_name(
+        &self,
+        table_name: &str,
+        txn_id: TransactionID,
+    ) -> Result<Vec<Index>> {
+        let system_index_columns_table =
+            self.system_table_heap(PageID(SYSTEM_INDEX_COLUMNS_FIRST_PAGE_ID.0), txn_id);
+        let mut columns = Vec::new();
+        for tuple in system_index_columns_table.iter() {
+            let values = tuple.values(&Self::system_index_columns_schema());
+            let id = if let Value::Integer(id) = &values[0] {
+                id.0
+            } else {
+                return Err(anyhow::anyhow!("Invalid id"));
+            };
+            let column_name = if let Value::Varchar(column_name) = &values[1] {
+                column_name.0.clone()
+            } else {
+                return Err(anyhow::anyhow!("Invalid column_name"));
+            };
+            columns.push((id, column_name));
+        }
+
+        let system_indexes_table =
+            self.system_table_heap(PageID(SYSTEM_INDEXES_FIRST_PAGE_ID.0), txn_id);
+        let mut indexes = Vec::new();
+        for tuple in system_indexes_table.iter() {
+            let values = tuple.values(&Self::system_indexes_schema());
+            if let Value::Varchar(VarcharValue(name)) = &values[2] {
+                if name == table_name {
+                    let mut index = Index::from_system_table(values)?;
+                    for (id, column_name) in columns.iter() {
+                        if *id == index.id {
+                            index.add_columns(column_name.clone());
+                        }
+                    }
+                    indexes.push(index);
+                }
+            }
+        }
+        Ok(indexes)
     }
 
     fn create_empty_system_table(&self, txn_id: TransactionID) -> Result<()> {

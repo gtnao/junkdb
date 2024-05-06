@@ -15,6 +15,7 @@ use crate::{
     executor::{ExecutorContext, ExecutorEngine},
     lock::LockManager,
     log::LogManager,
+    optimizer::Optimizer,
     parser::{CreateIndexStatementAST, CreateTableStatementAST, StatementAST},
     plan::Planner,
     recovery::RecoveryManager,
@@ -131,6 +132,8 @@ impl Instance {
         let bound_statement = binder.bind_statement(statement)?;
         let planner = Planner::new(bound_statement);
         let plan = planner.plan();
+        let optimizer = Optimizer::new(self.catalog.clone(), txn_id);
+        let plan = optimizer.optimize(plan)?;
         let schema = plan.schema().clone();
         let executor_context = ExecutorContext {
             transaction_id: txn_id,
