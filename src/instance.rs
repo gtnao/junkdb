@@ -15,7 +15,7 @@ use crate::{
     executor::{ExecutorContext, ExecutorEngine},
     lock::LockManager,
     log::LogManager,
-    parser::{CreateTableStatementAST, StatementAST},
+    parser::{CreateIndexStatementAST, CreateTableStatementAST, StatementAST},
     plan::Planner,
     recovery::RecoveryManager,
     value::Value,
@@ -104,6 +104,21 @@ impl Instance {
             .lock()
             .map_err(|e| anyhow::anyhow!("{}", e))?
             .create_table(&statement.table_name, &schema, txn_id)
+    }
+    pub fn create_index(
+        &self,
+        statement: &CreateIndexStatementAST,
+        txn_id: TransactionID,
+    ) -> Result<()> {
+        self.catalog
+            .lock()
+            .map_err(|e| anyhow::anyhow!("{}", e))?
+            .create_index(
+                &statement.index_name,
+                &statement.table_name,
+                &statement.column_names,
+                txn_id,
+            )
     }
 
     // DDL

@@ -7,8 +7,10 @@ use crate::{
     common::{PageID, TransactionID},
     concurrency::TransactionManager,
     lock::LockManager,
-    log::{LogManager, LogRecordBody, NewTablePage},
-    page::table_page::TABLE_PAGE_PAGE_TYPE,
+    log::{LogManager, LogRecordBody, NewBPlusTreeLeafPage, NewTablePage},
+    page::{
+        b_plus_tree_leaf_page::B_PLUS_TREE_LEAF_PAGE_PAGE_TYPE, table_page::TABLE_PAGE_PAGE_TYPE,
+    },
     table::TableHeap,
     value::{integer::IntegerValue, varchar::VarcharValue, Value},
 };
@@ -60,6 +62,7 @@ pub struct Catalog {
     lock_manager: Arc<RwLock<LockManager>>,
     log_manager: Arc<Mutex<LogManager>>,
     next_table_id: u32,
+    next_index_id: u32,
 }
 
 impl Catalog {
@@ -75,11 +78,13 @@ impl Catalog {
             lock_manager,
             log_manager,
             next_table_id: 0,
+            next_index_id: 0,
         }
     }
     pub fn bootstrap(&mut self, init: bool) -> Result<()> {
         if !init {
             self.set_next_table_id()?;
+            self.set_next_index_id()?;
             return Ok(());
         }
         let txn_id = self
@@ -101,6 +106,18 @@ impl Catalog {
             &Self::system_columns_schema(),
             txn_id,
             SYSTEM_COLUMNS_FIRST_PAGE_ID,
+        )?;
+        self.create_system_table(
+            "system_indexes",
+            &Self::system_indexes_schema(),
+            txn_id,
+            SYSTEM_INDEXES_FIRST_PAGE_ID,
+        )?;
+        self.create_system_table(
+            "system_index_columns",
+            &Self::system_index_columns_schema(),
+            txn_id,
+            SYSTEM_INDEX_COLUMNS_FIRST_PAGE_ID,
         )?;
         self.transaction_manager
             .lock()
@@ -169,6 +186,70 @@ impl Catalog {
                 Value::Integer(IntegerValue(column.data_type.clone().into())),
             ];
             system_columns_table.insert(&values)?;
+        }
+        Ok(())
+    }
+    pub fn create_index(
+        &mut self,
+        name: &str,
+        table_name: &str,
+        column_names: &[String],
+        txn_id: TransactionID,
+    ) -> Result<()> {
+        let page = self
+            .buffer_pool_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .new_page(B_PLUS_TREE_LEAF_PAGE_PAGE_TYPE)?;
+        let page_id = page
+            .read()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .page_id();
+        let lsn = self
+            .log_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .append(
+                txn_id,
+                LogRecordBody::NewBPlusTreeLeafPage(NewBPlusTreeLeafPage { page_id }),
+            )?;
+        page.write()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .with_b_plus_tree_leaf_page_mut(|page| page.set_lsn(lsn));
+        self.buffer_pool_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .unpin_page(
+                page.read()
+                    .map_err(|_| anyhow::anyhow!("lock error"))?
+                    .page_id(),
+                true,
+            )?;
+        let mut system_indexes_table =
+            self.system_table_heap(PageID(SYSTEM_INDEXES_FIRST_PAGE_ID.0), txn_id);
+        let index_id = self.next_index_id;
+        let values = vec![
+            Value::Integer(IntegerValue(index_id as i64)),
+            Value::Varchar(VarcharValue(name.to_string())),
+            Value::Varchar(VarcharValue(table_name.to_string())),
+            Value::Integer(IntegerValue(
+                page.read()
+                    .map_err(|_| anyhow::anyhow!("lock error"))?
+                    .page_id()
+                    .0 as i64,
+            )),
+        ];
+        system_indexes_table.insert(&values)?;
+        self.next_index_id += 1;
+        let mut system_index_columns_table =
+            self.system_table_heap(PageID(SYSTEM_INDEX_COLUMNS_FIRST_PAGE_ID.0), txn_id);
+        for (i, column_name) in column_names.iter().enumerate() {
+            let values = vec![
+                Value::Integer(IntegerValue(index_id as i64)),
+                Value::Varchar(VarcharValue(column_name.to_string())),
+                Value::Integer(IntegerValue(i as i64)),
+            ];
+            system_index_columns_table.insert(&values)?;
         }
         Ok(())
     }
@@ -321,6 +402,30 @@ impl Catalog {
             .commit(txn_id)?;
         Ok(())
     }
+    fn set_next_index_id(&mut self) -> Result<()> {
+        let mut max_index_id = 0;
+        let txn_id = self
+            .transaction_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .begin()?;
+        let system_indexes_table =
+            self.system_table_heap(PageID(SYSTEM_INDEXES_FIRST_PAGE_ID.0), txn_id);
+        for tuple in system_indexes_table.iter() {
+            let values = tuple.values(&Self::system_indexes_schema());
+            if let Value::Integer(IntegerValue(index_id)) = values[0] {
+                if index_id > max_index_id {
+                    max_index_id = index_id;
+                }
+            }
+        }
+        self.next_table_id = (max_index_id as u32) + 1;
+        self.transaction_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock error"))?
+            .commit(txn_id)?;
+        Ok(())
+    }
     fn get_table_id_by_table_name(&self, table_name: &str, txn_id: TransactionID) -> Result<u32> {
         let system_tables_table =
             self.system_table_heap(PageID(SYSTEM_TABLES_FIRST_PAGE_ID.0), txn_id);
@@ -377,12 +482,49 @@ impl Catalog {
             ],
         }
     }
+    pub fn system_indexes_schema() -> Schema {
+        Schema {
+            columns: vec![
+                Column {
+                    name: "id".to_string(),
+                    data_type: DataType::Integer,
+                },
+                Column {
+                    name: "name".to_string(),
+                    data_type: DataType::Varchar,
+                },
+                Column {
+                    name: "table_name".to_string(),
+                    data_type: DataType::Varchar,
+                },
+                Column {
+                    name: "first_page_id".to_string(),
+                    data_type: DataType::Integer,
+                },
+            ],
+        }
+    }
+    pub fn system_index_columns_schema() -> Schema {
+        Schema {
+            columns: vec![
+                Column {
+                    name: "index_id".to_string(),
+                    data_type: DataType::Integer,
+                },
+                Column {
+                    name: "column_name".to_string(),
+                    data_type: DataType::Varchar,
+                },
+            ],
+        }
+    }
 }
 
-const SYSTEM_TABLE_COUNT: usize = 2;
+const SYSTEM_TABLE_COUNT: usize = 4;
 const SYSTEM_TABLES_FIRST_PAGE_ID: PageID = PageID(1);
 const SYSTEM_COLUMNS_FIRST_PAGE_ID: PageID = PageID(2);
-// const SYSTEM_INDEXES_FIRST_PAGE_ID: PageID = PageID(3);
+const SYSTEM_INDEXES_FIRST_PAGE_ID: PageID = PageID(3);
+const SYSTEM_INDEX_COLUMNS_FIRST_PAGE_ID: PageID = PageID(4);
 
 #[cfg(test)]
 mod tests {

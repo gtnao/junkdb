@@ -934,7 +934,7 @@ mod tests {
                     BoundBaseTableReferenceAST {
                         table_name: "t1".to_string(),
                         alias: Some("_t1".to_string()),
-                        first_page_id: PageID(3),
+                        first_page_id: PageID(5),
                         schema: Schema {
                             columns: vec![
                                 Column {
@@ -1017,7 +1017,7 @@ mod tests {
                         left: Box::new(BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
                             table_name: "t1".to_string(),
                             alias: None,
-                            first_page_id: PageID(3),
+                            first_page_id: PageID(5),
                             schema: Schema {
                                 columns: vec![
                                     Column {
@@ -1034,7 +1034,7 @@ mod tests {
                         right: Box::new(BoundTableReferenceAST::Base(BoundBaseTableReferenceAST {
                             table_name: "t2".to_string(),
                             alias: Some("_t2".to_string()),
-                            first_page_id: PageID(4),
+                            first_page_id: PageID(6),
                             schema: Schema {
                                 columns: vec![
                                     Column {
@@ -1174,7 +1174,7 @@ mod tests {
                                 BoundBaseTableReferenceAST {
                                     table_name: "t1".to_string(),
                                     alias: None,
-                                    first_page_id: PageID(3),
+                                    first_page_id: PageID(5),
                                     schema: Schema {
                                         columns: vec![
                                             Column {
@@ -1293,7 +1293,7 @@ mod tests {
                         data_type: Some(DataType::Varchar),
                     }),
                 ],
-                first_page_id: PageID(3),
+                first_page_id: PageID(5),
                 table_schema: Schema {
                     columns: vec![
                         Column {
@@ -1328,7 +1328,7 @@ mod tests {
                 table_reference: BoundBaseTableReferenceAST {
                     table_name: "t1".to_string(),
                     alias: None,
-                    first_page_id: PageID(3),
+                    first_page_id: PageID(5),
                     schema: Schema {
                         columns: vec![
                             Column {
@@ -1379,7 +1379,7 @@ mod tests {
                 table_reference: BoundBaseTableReferenceAST {
                     table_name: "t1".to_string(),
                     alias: None,
-                    first_page_id: PageID(3),
+                    first_page_id: PageID(5),
                     schema: Schema {
                         columns: vec![
                             Column {

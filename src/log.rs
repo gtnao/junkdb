@@ -110,6 +110,7 @@ pub enum LogRecordBody {
     DeleteFromTablePage(DeleteFromTablePage),
     SetNextPageID(SetNextPageID),
     NewTablePage(NewTablePage),
+    NewBPlusTreeLeafPage(NewBPlusTreeLeafPage),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +131,10 @@ pub struct SetNextPageID {
 pub struct NewTablePage {
     pub page_id: PageID,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewBPlusTreeLeafPage {
+    pub page_id: PageID,
+}
 
 impl From<&[u8]> for LogRecordBody {
     fn from(bytes: &[u8]) -> Self {
@@ -144,6 +149,7 @@ impl From<&[u8]> for LogRecordBody {
             4 => LogRecordBody::DeleteFromTablePage(DeleteFromTablePage::from(&bytes[4..])),
             5 => LogRecordBody::SetNextPageID(SetNextPageID::from(&bytes[4..])),
             6 => LogRecordBody::NewTablePage(NewTablePage::from(&bytes[4..])),
+            7 => LogRecordBody::NewBPlusTreeLeafPage(NewBPlusTreeLeafPage::from(&bytes[4..])),
             _ => panic!("invalid log record type id"),
         }
     }
@@ -177,6 +183,10 @@ impl LogRecordBody {
                 buffer.extend_from_slice(&(6u32).to_be_bytes());
                 buffer.extend_from_slice(&body.serialize());
             }
+            LogRecordBody::NewBPlusTreeLeafPage(body) => {
+                buffer.extend_from_slice(&(7u32).to_be_bytes());
+                buffer.extend_from_slice(&body.serialize());
+            }
         }
         buffer
     }
@@ -189,6 +199,7 @@ impl LogRecordBody {
             LogRecordBody::DeleteFromTablePage(body) => 4 + body.size(),
             LogRecordBody::SetNextPageID(body) => 4 + body.size(),
             LogRecordBody::NewTablePage(body) => 4 + body.size(),
+            LogRecordBody::NewBPlusTreeLeafPage(body) => 4 + body.size(),
         }
     }
 }
@@ -284,6 +295,24 @@ impl NewTablePage {
         4
     }
 }
+impl From<&[u8]> for NewBPlusTreeLeafPage {
+    fn from(bytes: &[u8]) -> Self {
+        let mut buffer = [0u8; 4];
+        buffer.copy_from_slice(&bytes[0..4]);
+        let page_id = PageID(u32::from_be_bytes(buffer));
+        NewBPlusTreeLeafPage { page_id }
+    }
+}
+impl NewBPlusTreeLeafPage {
+    fn serialize(&self) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(&self.page_id.0.to_be_bytes());
+        buffer
+    }
+    fn size(&self) -> usize {
+        4
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -318,6 +347,10 @@ mod tests {
         )?;
         log_manager.append(
             TransactionID(2),
+            LogRecordBody::NewBPlusTreeLeafPage(NewBPlusTreeLeafPage { page_id: PageID(3) }),
+        )?;
+        log_manager.append(
+            TransactionID(2),
             LogRecordBody::SetNextPageID(SetNextPageID {
                 page_id: PageID(1),
                 next_page_id: PageID(2),
@@ -327,7 +360,7 @@ mod tests {
         log_manager.flush()?;
 
         let mut log_manager = LogManager::new(log_file_path.to_str().unwrap())?;
-        assert_eq!(log_manager.next_lsn, LSN(9));
+        assert_eq!(log_manager.next_lsn, LSN(10));
         let records = log_manager.read()?;
         assert_eq!(records[0].lsn, LSN(1));
         assert_eq!(records[0].txn_id, TransactionID(1));
@@ -362,14 +395,20 @@ mod tests {
         assert_eq!(records[6].txn_id, TransactionID(2));
         assert_eq!(
             records[6].body,
+            LogRecordBody::NewBPlusTreeLeafPage(NewBPlusTreeLeafPage { page_id: PageID(3) })
+        );
+        assert_eq!(records[7].lsn, LSN(8));
+        assert_eq!(records[7].txn_id, TransactionID(2));
+        assert_eq!(
+            records[7].body,
             LogRecordBody::SetNextPageID(SetNextPageID {
                 page_id: PageID(1),
                 next_page_id: PageID(2),
             })
         );
-        assert_eq!(records[7].lsn, LSN(8));
-        assert_eq!(records[7].txn_id, TransactionID(2));
-        assert_eq!(records[7].body, LogRecordBody::AbortTransaction);
+        assert_eq!(records[8].lsn, LSN(9));
+        assert_eq!(records[8].txn_id, TransactionID(2));
+        assert_eq!(records[8].body, LogRecordBody::AbortTransaction);
 
         Ok(())
     }

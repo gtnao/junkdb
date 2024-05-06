@@ -4,9 +4,9 @@ use anyhow::Result;
 
 use crate::{
     buffer::BufferPoolManager,
-    common::TransactionID,
+    common::{TransactionID, INVALID_PAGE_ID},
     log::{LogRecord, LogRecordBody},
-    page::{table_page::TablePage, Page},
+    page::{b_plus_tree_leaf_page::BPlusTreeLeafPage, table_page::TablePage, Page},
 };
 
 pub struct RecoveryManager {
@@ -99,6 +99,17 @@ impl RecoveryManager {
                     let mut table_page = TablePage::new(body.page_id);
                     table_page.set_lsn(log_record.lsn);
                     let page = Page::Table(table_page);
+                    self.buffer_pool_manager
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("lock error"))?
+                        .init_page_for_recovery(body.page_id, page)?;
+                }
+                LogRecordBody::NewBPlusTreeLeafPage(ref body) => {
+                    // TODO:
+                    let mut b_plus_tree_leaf_page =
+                        BPlusTreeLeafPage::new(body.page_id, INVALID_PAGE_ID, None);
+                    b_plus_tree_leaf_page.set_lsn(log_record.lsn);
+                    let page = Page::BPlusTreeLeaf(b_plus_tree_leaf_page);
                     self.buffer_pool_manager
                         .lock()
                         .map_err(|_| anyhow::anyhow!("lock error"))?

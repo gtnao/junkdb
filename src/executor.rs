@@ -64,11 +64,11 @@ impl ExecutorEngine {
     }
     fn create_executor(&self, plan: &Plan) -> Executor {
         match plan {
-            Plan::SeqScan(plan) => Executor::SeqScan(SeqScanExecutor {
-                plan: plan.clone(),
+            Plan::SeqScan(seq_scan_plan) => Executor::SeqScan(SeqScanExecutor {
+                plan: seq_scan_plan.clone(),
                 executor_context: &self.context,
                 table_iterator: TableHeap::new(
-                    plan.first_page_id,
+                    seq_scan_plan.first_page_id,
                     self.context.buffer_pool_manager.clone(),
                     self.context.transaction_manager.clone(),
                     self.context.lock_manager.clone(),
@@ -77,42 +77,46 @@ impl ExecutorEngine {
                 )
                 .iter(),
             }),
-            Plan::Filter(plan) => Executor::Filter(FilterExecutor {
-                plan: plan.clone(),
-                child: Box::new(self.create_executor(&plan.child)),
+            Plan::IndexScan(_) => unimplemented!(),
+            Plan::Filter(filter_plan) => Executor::Filter(FilterExecutor {
+                plan: filter_plan.clone(),
+                child: Box::new(self.create_executor(&plan.children()[0])),
                 executor_context: &self.context,
             }),
-            Plan::Project(plan) => Executor::Project(ProjectExecutor {
-                plan: plan.clone(),
-                child: Box::new(self.create_executor(&plan.child)),
+            Plan::Project(project_plan) => Executor::Project(ProjectExecutor {
+                plan: project_plan.clone(),
+                child: Box::new(self.create_executor(&plan.children()[0])),
                 executor_context: &self.context,
             }),
-            Plan::NestedLoopJoin(plan) => {
+            Plan::NestedLoopJoin(nested_loop_join_plan) => {
                 let children = plan
-                    .children
+                    .children()
                     .iter()
                     .map(|child| self.create_executor(child))
                     .collect::<Vec<_>>();
                 Executor::NestedLoopJoin(NestedLoopJoinExecutor {
-                    plan: plan.clone(),
+                    plan: nested_loop_join_plan.clone(),
                     children,
                     tuples: vec![],
                     executor_context: &self.context,
-                    matched_statuses: vec![false; plan.children.len() - 1],
-                    in_guard_statuses: vec![false; plan.children.len() - 1],
+                    matched_statuses: vec![false; plan.children().len() - 1],
+                    in_guard_statuses: vec![false; plan.children().len() - 1],
                 })
             }
-            Plan::Aggregate(plan) => {
+            Plan::Aggregate(aggregate_plan) => {
                 let mut aggregate_tables = vec![];
-                for _ in 0..plan.aggregate_functions.len() {
+                for _ in 0..aggregate_plan.aggregate_functions.len() {
                     aggregate_tables.push(AggregateTable::new());
                 }
                 Executor::Aggregate(AggregateExecutor {
-                    plan: plan.clone(),
-                    child: Box::new(self.create_executor(&plan.child)),
+                    plan: aggregate_plan.clone(),
+                    child: Box::new(self.create_executor(&plan.children()[0])),
                     executor_context: &self.context,
-                    aggregate_table_value: if plan.group_by.is_empty() {
-                        AggregateTableValue::Value(vec![vec![]; plan.aggregate_functions.len()])
+                    aggregate_table_value: if aggregate_plan.group_by.is_empty() {
+                        AggregateTableValue::Value(vec![
+                            vec![];
+                            aggregate_plan.aggregate_functions.len()
+                        ])
                     } else {
                         AggregateTableValue::Table(AggregateTable::new())
                     },
@@ -120,30 +124,30 @@ impl ExecutorEngine {
                     index: 0,
                 })
             }
-            Plan::Sort(plan) => Executor::Sort(SortExecutor {
-                plan: plan.clone(),
-                child: Box::new(self.create_executor(&plan.child)),
+            Plan::Sort(sort_plan) => Executor::Sort(SortExecutor {
+                plan: sort_plan.clone(),
+                child: Box::new(self.create_executor(&plan.children()[0])),
                 executor_context: &self.context,
                 result: vec![],
                 cursor: 0,
             }),
-            Plan::Limit(plan) => Executor::Limit(limit_executor::LimitExecutor {
-                plan: plan.clone(),
-                child: Box::new(self.create_executor(&plan.child)),
+            Plan::Limit(limit_plan) => Executor::Limit(limit_executor::LimitExecutor {
+                plan: limit_plan.clone(),
+                child: Box::new(self.create_executor(&plan.children()[0])),
                 executor_context: &self.context,
                 result: vec![],
                 cursor: 0,
             }),
-            Plan::EmptyRow(plan) => Executor::EmptyRow(EmptyRowExecutor {
-                plan: plan.clone(),
+            Plan::EmptyRow(empty_plan) => Executor::EmptyRow(EmptyRowExecutor {
+                plan: empty_plan.clone(),
                 executor_context: &self.context,
                 returned: false,
             }),
-            Plan::Insert(plan) => Executor::Insert(InsertExecutor {
-                plan: plan.clone(),
+            Plan::Insert(insert_plan) => Executor::Insert(InsertExecutor {
+                plan: insert_plan.clone(),
                 executor_context: &self.context,
                 table_heap: TableHeap::new(
-                    plan.first_page_id,
+                    insert_plan.first_page_id,
                     self.context.buffer_pool_manager.clone(),
                     self.context.transaction_manager.clone(),
                     self.context.lock_manager.clone(),
@@ -153,12 +157,12 @@ impl ExecutorEngine {
                 count: 0,
                 executed: false,
             }),
-            Plan::Delete(plan) => Executor::Delete(DeleteExecutor {
-                plan: plan.clone(),
-                child: Box::new(self.create_executor(&plan.child)),
+            Plan::Delete(delete_plan) => Executor::Delete(DeleteExecutor {
+                plan: delete_plan.clone(),
+                child: Box::new(self.create_executor(&plan.children()[0])),
                 executor_context: &self.context,
                 table_heap: TableHeap::new(
-                    plan.first_page_id,
+                    delete_plan.first_page_id,
                     self.context.buffer_pool_manager.clone(),
                     self.context.transaction_manager.clone(),
                     self.context.lock_manager.clone(),
@@ -168,12 +172,12 @@ impl ExecutorEngine {
                 count: 0,
                 executed: false,
             }),
-            Plan::Update(plan) => Executor::Update(UpdateExecutor {
-                plan: plan.clone(),
-                child: Box::new(self.create_executor(&plan.child)),
+            Plan::Update(update_plan) => Executor::Update(UpdateExecutor {
+                plan: update_plan.clone(),
+                child: Box::new(self.create_executor(&plan.children()[0])),
                 executor_context: &self.context,
                 table_heap: TableHeap::new(
-                    plan.first_page_id,
+                    update_plan.first_page_id,
                     self.context.buffer_pool_manager.clone(),
                     self.context.transaction_manager.clone(),
                     self.context.lock_manager.clone(),

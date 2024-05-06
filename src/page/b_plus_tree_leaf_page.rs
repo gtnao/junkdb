@@ -36,6 +36,7 @@ const LINE_POINTER_SIZE: usize = LINE_POINTER_OFFSET_SIZE + LINE_POINTER_SIZE_SI
 // RID
 const VALUE_SIZE: usize = 8;
 
+#[derive(Debug)]
 pub struct BPlusTreeLeafPage {
     pub data: Box<[u8]>,
 }
@@ -68,6 +69,11 @@ impl BPlusTreeLeafPage {
         BPlusTreeLeafPage { data: data.into() }
     }
 
+    pub fn page_id(&self) -> PageID {
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&self.data[PAGE_ID_OFFSET..(PAGE_ID_OFFSET + PAGE_ID_SIZE)]);
+        PageID(u32::from_le_bytes(bytes))
+    }
     pub fn lsn(&self) -> LSN {
         let mut buf = [0u8; 8];
         buf.copy_from_slice(&self.data[LSN_OFFSET..(LSN_OFFSET + LSN_SIZE)]);

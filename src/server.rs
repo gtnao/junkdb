@@ -180,10 +180,11 @@ impl Session {
                         format!("table {} created", ast.table_name)
                     }
                     StatementAST::CreateIndex(ast) => {
-                        format!(
-                            "create index is not implemented yet ({:?}, {:?}, {:?})",
-                            ast.index_name, ast.table_name, ast.column_names
-                        )
+                        self.instance
+                            .write()
+                            .map_err(|_| anyhow!("lock error"))?
+                            .create_index(&ast, txn_id)?;
+                        format!("index {} created", ast.index_name)
                     }
                     _ => {
                         let (rows, schema) = self

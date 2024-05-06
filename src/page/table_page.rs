@@ -27,6 +27,7 @@ const LINE_POINTER_OFFSET_SIZE: usize = 4;
 const LINE_POINTER_SIZE_SIZE: usize = 4;
 const LINE_POINTER_SIZE: usize = LINE_POINTER_OFFSET_SIZE + LINE_POINTER_SIZE_SIZE;
 
+#[derive(Debug)]
 pub struct TablePage {
     pub data: Box<[u8]>,
 }

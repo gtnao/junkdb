@@ -14,6 +14,7 @@ use crate::{
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Plan {
     SeqScan(SeqScanPlan),
+    IndexScan(IndexScanPlan),
     Filter(FilterPlan),
     Project(ProjectPlan),
     NestedLoopJoin(NestedLoopJoinPlan),
@@ -29,6 +30,7 @@ impl Plan {
     pub fn schema(&self) -> &Schema {
         match self {
             Plan::SeqScan(plan) => &plan.schema,
+            Plan::IndexScan(plan) => &plan.schema,
             Plan::Filter(plan) => &plan.schema,
             Plan::Project(plan) => &plan.schema,
             Plan::NestedLoopJoin(plan) => &plan.schema,
@@ -41,10 +43,31 @@ impl Plan {
             Plan::Update(plan) => &plan.schema,
         }
     }
+    pub fn children(&self) -> Vec<Box<Plan>> {
+        match self {
+            Plan::SeqScan(_) => vec![],
+            Plan::IndexScan(_) => vec![],
+            Plan::Filter(plan) => vec![plan.child.clone()],
+            Plan::Project(plan) => vec![plan.child.clone()],
+            Plan::NestedLoopJoin(plan) => plan.children.clone(),
+            Plan::Aggregate(plan) => vec![plan.child.clone()],
+            Plan::Sort(plan) => vec![plan.child.clone()],
+            Plan::Limit(plan) => vec![plan.child.clone()],
+            Plan::EmptyRow(_) => vec![],
+            Plan::Insert(_) => vec![],
+            Plan::Delete(plan) => vec![plan.child.clone()],
+            Plan::Update(plan) => vec![plan.child.clone()],
+        }
+    }
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SeqScanPlan {
     pub first_page_id: PageID,
+    pub schema: Schema,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct IndexScanPlan {
+    pub root_page_id: PageID,
     pub schema: Schema,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -429,7 +452,7 @@ mod tests {
         assert_eq!(
             plan,
             Plan::Delete(DeletePlan {
-                first_page_id: PageID(3),
+                first_page_id: PageID(5),
                 schema: Schema {
                     columns: vec![Column {
                         name: "__delete_count".to_owned(),
@@ -465,7 +488,7 @@ mod tests {
                         ],
                     },
                     child: Box::new(Plan::SeqScan(SeqScanPlan {
-                        first_page_id: PageID(3),
+                        first_page_id: PageID(5),
                         schema: Schema {
                             columns: vec![
                                 Column {
