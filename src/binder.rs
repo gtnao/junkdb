@@ -78,6 +78,7 @@ pub struct BoundSubqueryTableReferenceAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BoundInsertStatementAST {
     pub table_name: String,
+    pub column_names: Vec<String>,
     pub values: Vec<BoundExpressionAST>,
     pub first_page_id: PageID,
     pub table_schema: Schema,
@@ -440,12 +441,34 @@ impl Binder {
             .lock()
             .map_err(|_| anyhow::anyhow!("lock error"))?
             .get_schema_by_table_name(&statement.table_name, self.txn_id)?;
-        if statement.values.len() != schema.columns.len() {
-            return Err(anyhow::anyhow!(
-                "expected {} values, but got {}",
-                schema.columns.len(),
-                statement.values.len()
-            ));
+        if statement.column_names.len() > 0 {
+            if statement.column_names.len() != statement.values.len() {
+                return Err(anyhow::anyhow!(
+                    "expected {} values, but got {}",
+                    statement.column_names.len(),
+                    statement.values.len()
+                ));
+            }
+            if statement.column_names.len() > schema.columns.len() {
+                return Err(anyhow::anyhow!(
+                    "expected {} values, but got {}",
+                    schema.columns.len(),
+                    statement.column_names.len()
+                ));
+            }
+            for column_name in &statement.column_names {
+                if !schema.columns.iter().any(|column| column.name == *column_name) {
+                    return Err(anyhow::anyhow!("column {} not found", column_name));
+                }
+            }
+        } else {
+            if statement.values.len() != schema.columns.len() {
+                return Err(anyhow::anyhow!(
+                    "expected {} values, but got {}",
+                    schema.columns.len(),
+                    statement.values.len()
+                ));
+            }
         }
         let mut values = Vec::new();
         for value in &statement.values {
@@ -453,6 +476,7 @@ impl Binder {
         }
         Ok(BoundStatementAST::Insert(BoundInsertStatementAST {
             table_name: statement.table_name.clone(),
+            column_names: statement.column_names.clone(),
             values,
             first_page_id,
             table_schema: schema,
@@ -1283,6 +1307,7 @@ mod tests {
             bound_statement,
             BoundStatementAST::Insert(BoundInsertStatementAST {
                 table_name: "t1".to_string(),
+                column_names: vec![],
                 values: vec![
                     BoundExpressionAST::Literal(BoundLiteralExpressionAST {
                         value: Value::Integer(IntegerValue(1)),

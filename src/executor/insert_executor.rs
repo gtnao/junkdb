@@ -28,7 +28,22 @@ impl InsertExecutor<'_> {
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                let raw_value = self.plan.values[i].eval(
+                let index;
+                if self.plan.column_names.len() > 0 {
+                    let position = self
+                        .plan
+                        .column_names
+                        .iter()
+                        .position(|x| x == &c.name);
+                    // TODO: support default value
+                    match position {
+                        Some(i) => index = i,
+                        None => return Ok(Value::Null),
+                    }
+                } else {
+                    index = i;
+                }
+                let raw_value = self.plan.values[index].eval(
                     &vec![&Tuple::new(None, &[])],
                     &vec![&Schema { columns: vec![] }],
                 )?;
