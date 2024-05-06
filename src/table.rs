@@ -43,7 +43,7 @@ impl TableHeap {
             txn_id,
         }
     }
-    pub fn insert(&mut self, values: &[Value]) -> Result<()> {
+    pub fn insert(&mut self, values: &[Value]) -> Result<RID> {
         let tuple_data = Tuple::serialize(self.txn_id, INVALID_TRANSACTION_ID, values);
         let mut page_id = self.first_page_id;
         loop {
@@ -57,7 +57,7 @@ impl TableHeap {
                 .map_err(|_| anyhow::anyhow!("lock error"))?
                 .with_table_page_mut(|table_page| table_page.insert(&tuple_data));
             // TODO: only free space not enough
-            if result.is_ok() {
+            if let Ok(rid) = result {
                 let lsn = self
                     .log_manager
                     .lock()
@@ -76,7 +76,7 @@ impl TableHeap {
                     .lock()
                     .map_err(|_| anyhow::anyhow!("lock error"))?
                     .unpin_page(page_id, true)?;
-                break;
+                return Ok(rid);
             }
 
             let next_page_id = page
@@ -139,7 +139,6 @@ impl TableHeap {
                 page_id = next_page_id;
             }
         }
-        Ok(())
     }
 
     pub fn delete(&mut self, rid: RID) -> Result<()> {

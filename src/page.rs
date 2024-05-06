@@ -70,7 +70,20 @@ impl Page {
         }
     }
     pub fn from_data(data: &[u8]) -> Self {
-        Page::Table(TablePage::from_data(data))
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&data[PAGE_TYPE_OFFSET..(PAGE_TYPE_OFFSET + PAGE_TYPE_SIZE)]);
+        let page_type = match u32::from_le_bytes(bytes) {
+            1 => TABLE_PAGE_PAGE_TYPE,
+            2 => B_PLUS_TREE_LEAF_PAGE_PAGE_TYPE,
+            _ => panic!("page type not supported"),
+        };
+        match page_type {
+            TABLE_PAGE_PAGE_TYPE => Page::Table(TablePage::from_data(data)),
+            B_PLUS_TREE_LEAF_PAGE_PAGE_TYPE => {
+                Page::BPlusTreeLeaf(BPlusTreeLeafPage::from_data(data))
+            }
+            _ => panic!("page type not supported"),
+        }
     }
     pub fn data(&self) -> &[u8] {
         match self {
@@ -83,5 +96,8 @@ impl Page {
             Page::Table(table_page) => table_page.page_id(),
             Page::BPlusTreeLeaf(b_plus_tree_leaf_page) => b_plus_tree_leaf_page.page_id(),
         }
+    }
+    pub fn is_b_plus_tree_leaf(&self) -> bool {
+        matches!(self, Page::BPlusTreeLeaf(_))
     }
 }

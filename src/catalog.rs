@@ -301,6 +301,8 @@ impl Catalog {
         }
         Ok(schema)
     }
+
+    // TODO: store indexes in catalog
     pub fn get_index(&self, index_id: i64, txn_id: TransactionID) -> Result<Index> {
         let system_indexes_table =
             self.system_table_heap(PageID(SYSTEM_INDEXES_FIRST_PAGE_ID.0), txn_id);
@@ -308,7 +310,20 @@ impl Catalog {
             let values = tuple.values(&Self::system_indexes_schema());
             if let Value::Integer(IntegerValue(id)) = values[0] {
                 if id == index_id {
-                    return Ok(Index::from_system_table(values)?);
+                    let mut index = Index::from_system_table(values)?;
+                    let system_index_columns_table = self
+                        .system_table_heap(PageID(SYSTEM_INDEX_COLUMNS_FIRST_PAGE_ID.0), txn_id);
+                    for tuple in system_index_columns_table.iter() {
+                        let values = tuple.values(&Self::system_index_columns_schema());
+                        if let Value::Integer(IntegerValue(columns_table_index_id)) = &values[0] {
+                            if *columns_table_index_id == index.id {
+                                if let Value::Varchar(VarcharValue(column_name)) = &values[1] {
+                                    index.add_columns(column_name.clone());
+                                }
+                            }
+                        }
+                    }
+                    return Ok(index);
                 }
             }
         }

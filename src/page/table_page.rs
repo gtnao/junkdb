@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 
 use crate::{
-    common::{PageID, TransactionID, INVALID_PAGE_ID, LSN, PAGE_SIZE},
+    common::{PageID, TransactionID, INVALID_PAGE_ID, LSN, PAGE_SIZE, RID},
     tuple::Tuple,
 };
 
@@ -50,7 +50,7 @@ impl TablePage {
     pub fn from_data(data: &[u8]) -> Self {
         TablePage { data: data.into() }
     }
-    pub fn insert(&mut self, data: &[u8]) -> Result<()> {
+    pub fn insert(&mut self, data: &[u8]) -> Result<RID> {
         // TODO: too large for one page
         if self.free_space() < data.len() + LINE_POINTER_SIZE {
             return Err(anyhow!("free space not enough"));
@@ -72,7 +72,10 @@ impl TablePage {
             .copy_from_slice(&data_size.to_le_bytes());
         self.data[(next_upper_offset as usize)..(upper_offset as usize)].copy_from_slice(data);
 
-        Ok(())
+        Ok(RID(
+            self.page_id(),
+            (lower_offset - HEADER_SIZE as u32) / LINE_POINTER_SIZE as u32,
+        ))
     }
     pub fn delete(&mut self, index: u32, txn_id: TransactionID) {
         let offset = self.line_pointer_offset(index as usize) as usize;

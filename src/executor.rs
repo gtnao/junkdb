@@ -83,6 +83,8 @@ impl ExecutorEngine {
                 plan: index_plan.clone(),
                 executor_context: &self.context,
                 index_id: index_plan.index_id,
+                rids: None,
+                cursor: 0,
             }),
             Plan::Filter(filter_plan) => Executor::Filter(FilterExecutor {
                 plan: filter_plan.clone(),
@@ -160,6 +162,7 @@ impl ExecutorEngine {
                     self.context.log_manager.clone(),
                     self.context.transaction_id,
                 ),
+                table_schema: insert_plan.table_schema.clone(),
                 count: 0,
                 executed: false,
             }),

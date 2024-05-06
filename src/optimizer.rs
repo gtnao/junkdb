@@ -32,6 +32,7 @@ impl Optimizer {
         source_plan.set_children(children);
         if let Plan::Filter(filter_plan) = plan {
             if let BoundExpressionAST::Binary(binary_expression) = filter_plan.condition {
+                let binary_expression_clone = binary_expression.clone();
                 if let BoundExpressionAST::Path(path_expression) = *binary_expression.left {
                     let indexes = self
                         .catalog
@@ -43,9 +44,19 @@ impl Optimizer {
                             && index.columns[0] == path_expression.column_name
                         {
                             if let BoundExpressionAST::Literal(_) = *binary_expression.right {
+                                let table_schema = self
+                                    .catalog
+                                    .lock()
+                                    .map_err(|_| anyhow::anyhow!("Catalog lock error"))?
+                                    .get_schema_by_table_name(
+                                        &path_expression.table_name,
+                                        self.txn_id,
+                                    )?;
                                 return Ok(Plan::IndexScan(IndexScanPlan {
                                     index_id: index.id,
                                     schema: filter_plan.schema,
+                                    binary_expression: binary_expression_clone,
+                                    table_schema,
                                 }));
                             }
                         }

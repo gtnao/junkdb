@@ -1,10 +1,10 @@
 use crate::{
     binder::{
-        BoundAssignmentAST, BoundBaseTableReferenceAST, BoundDeleteStatementAST,
-        BoundExpressionAST, BoundFunctionCallExpressionAST, BoundInsertStatementAST,
-        BoundJoinTableReferenceAST, BoundLimitAST, BoundOrderByElementAST, BoundSelectElementAST,
-        BoundSelectStatementAST, BoundStatementAST, BoundSubqueryTableReferenceAST,
-        BoundTableReferenceAST, BoundUpdateStatementAST,
+        BoundAssignmentAST, BoundBaseTableReferenceAST, BoundBinaryExpressionAST,
+        BoundDeleteStatementAST, BoundExpressionAST, BoundFunctionCallExpressionAST,
+        BoundInsertStatementAST, BoundJoinTableReferenceAST, BoundLimitAST, BoundOrderByElementAST,
+        BoundSelectElementAST, BoundSelectStatementAST, BoundStatementAST,
+        BoundSubqueryTableReferenceAST, BoundTableReferenceAST, BoundUpdateStatementAST,
     },
     catalog::{Column, DataType, Schema},
     common::PageID,
@@ -87,6 +87,9 @@ pub struct SeqScanPlan {
 pub struct IndexScanPlan {
     pub index_id: i64,
     pub schema: Schema,
+    pub binary_expression: BoundBinaryExpressionAST,
+    // TODO: remove
+    pub table_schema: Schema,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FilterPlan {
@@ -136,6 +139,7 @@ pub struct InsertPlan {
     pub table_schema: Schema,
     pub values: Vec<BoundExpressionAST>,
     pub schema: Schema,
+    pub table_name: String,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DeletePlan {
@@ -385,6 +389,7 @@ impl Planner {
                     data_type: DataType::Integer,
                 }],
             },
+            table_name: insert_statement.table_name.clone(),
         })
     }
     fn plan_delete_statement(&self, delete_statement: &BoundDeleteStatementAST) -> Plan {

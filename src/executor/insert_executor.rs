@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::{
     catalog::Schema,
     common::INVALID_TRANSACTION_ID,
+    index::IndexManager,
     plan::InsertPlan,
     table::TableHeap,
     tuple::Tuple,
@@ -15,6 +16,7 @@ pub struct InsertExecutor<'a> {
     pub plan: InsertPlan,
     pub executor_context: &'a ExecutorContext,
     pub table_heap: TableHeap,
+    pub table_schema: Schema,
     pub count: u32,
     pub executed: bool,
 }
@@ -38,8 +40,36 @@ impl InsertExecutor<'_> {
                 raw_value.convert_to(&c.data_type)
             })
             .collect::<Result<Vec<_>>>()?;
-        self.table_heap.insert(&values)?;
+        let rid = self.table_heap.insert(&values)?;
         self.count += 1;
+        let mut indexes = self
+            .executor_context
+            .catalog
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Catalog lock error"))?
+            .get_indexes_by_table_name(
+                &self.plan.table_name,
+                self.executor_context.transaction_id,
+            )?;
+        for index in indexes.iter_mut() {
+            index.set_schema(self.plan.table_schema.clone());
+        }
+        for index in indexes {
+            // TODO: only support single column index
+            let column_name = index.columns[0].clone();
+            let index_manager = IndexManager::new(
+                index,
+                self.executor_context.catalog.clone(),
+                self.executor_context.buffer_pool_manager.clone(),
+            );
+            for (i, column) in self.plan.table_schema.columns.iter().enumerate() {
+                if column.name == column_name {
+                    let right_value = values[i].clone();
+                    index_manager.insert(&right_value, rid)?;
+                    break;
+                }
+            }
+        }
         Ok(())
     }
     pub fn next(&mut self) -> Result<Option<Tuple>> {
