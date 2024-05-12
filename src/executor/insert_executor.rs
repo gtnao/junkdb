@@ -29,19 +29,17 @@ impl InsertExecutor<'_> {
             .enumerate()
             .map(|(i, c)| {
                 let index;
-                if self.plan.column_names.len() > 0 {
-                    let position = self
-                        .plan
-                        .column_names
-                        .iter()
-                        .position(|x| x == &c.name);
-                    // TODO: support default value
-                    match position {
-                        Some(i) => index = i,
-                        None => return Ok(Value::Null),
+                match &self.plan.column_names {
+                    Some(column_names) => {
+                        let position = column_names.iter().position(|x| x == &c.name);
+                        match position {
+                            Some(pos) => index = pos,
+                            None => return Ok(Value::Null)
+                        }
+                    },
+                    None => {
+                        index = i;
                     }
-                } else {
-                    index = i;
                 }
                 let raw_value = self.plan.values[index].eval(
                     &vec![&Tuple::new(None, &[])],

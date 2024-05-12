@@ -134,7 +134,7 @@ pub struct EmptyRowPlan {
 pub struct InsertPlan {
     pub first_page_id: PageID,
     pub table_schema: Schema,
-    pub column_names: Vec<String>,
+    pub column_names: Option<Vec<String>>,
     pub values: Vec<BoundExpressionAST>,
     pub schema: Schema,
 }

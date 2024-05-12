@@ -95,7 +95,7 @@ pub struct LimitAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InsertStatementAST {
     pub table_name: String,
-    pub column_names: Vec<String>,
+    pub column_names: Option<Vec<String>>,
     // TODO: support multiple rows
     pub values: Vec<ExpressionAST>,
 }
@@ -461,20 +461,18 @@ impl Parser {
         self.consume_token_or_error(Token::Keyword(Keyword::Insert))?;
         self.consume_token_or_error(Token::Keyword(Keyword::Into))?;
         let table_name = self.identifier()?;
-        // verify column names
-        let column_names = if self.consume_token(Token::LeftParen) {
-            let mut column_names = Vec::new();
+        let mut column_names: Option<Vec<String>> = None;
+        if self.consume_token(Token::LeftParen) {
+            let mut names = Vec::new();
             loop {
-                column_names.push(self.identifier()?);
+                names.push(self.identifier()?);
                 if !self.consume_token(Token::Comma) {
                     break;
                 }
             }
             self.consume_token_or_error(Token::RightParen)?;
-            column_names
-        } else {
-            Vec::new()
-        };
+            column_names = Some(names);
+        }
         self.consume_token_or_error(Token::Keyword(Keyword::Values))?;
         self.consume_token_or_error(Token::LeftParen)?;
         let mut values = Vec::new();
@@ -971,7 +969,7 @@ mod tests {
             statement,
             StatementAST::Insert(InsertStatementAST {
                 table_name: String::from("users"),
-                column_names: vec![],
+                column_names: None,
                 values: vec![
                     ExpressionAST::Literal(LiteralExpressionAST {
                         value: Value::Integer(IntegerValue(1)),
@@ -989,7 +987,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_insert_with_column_names() -> Result<()> {
+    fn test_parse_insert_with_columns() -> Result<()> {
         let sql = "INSERT INTO users (id, name, is_deleted) VALUES (1, 'foo', true)";
         let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
 
@@ -998,11 +996,11 @@ mod tests {
             statement,
             StatementAST::Insert(InsertStatementAST {
                 table_name: String::from("users"),
-                column_names: vec![
+                column_names: Some(vec![
                     String::from("id"),
                     String::from("name"),
                     String::from("is_deleted"),
-                ],
+                ]),
                 values: vec![
                     ExpressionAST::Literal(LiteralExpressionAST {
                         value: Value::Integer(IntegerValue(1)),
