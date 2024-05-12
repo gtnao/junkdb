@@ -137,6 +137,7 @@ pub struct EmptyRowPlan {
 pub struct InsertPlan {
     pub first_page_id: PageID,
     pub table_schema: Schema,
+    pub column_names: Option<Vec<String>>,
     pub values: Vec<BoundExpressionAST>,
     pub schema: Schema,
     pub table_name: String,
@@ -382,6 +383,7 @@ impl Planner {
         Plan::Insert(InsertPlan {
             first_page_id: insert_statement.first_page_id,
             table_schema: insert_statement.table_schema.clone(),
+            column_names: insert_statement.column_names.clone(),
             values: insert_statement.values.clone(),
             schema: Schema {
                 columns: vec![Column {
