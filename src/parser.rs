@@ -95,6 +95,7 @@ pub struct LimitAST {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InsertStatementAST {
     pub table_name: String,
+    pub column_names: Option<Vec<String>>,
     // TODO: support multiple rows
     pub values: Vec<ExpressionAST>,
 }
@@ -460,6 +461,18 @@ impl Parser {
         self.consume_token_or_error(Token::Keyword(Keyword::Insert))?;
         self.consume_token_or_error(Token::Keyword(Keyword::Into))?;
         let table_name = self.identifier()?;
+        let mut column_names: Option<Vec<String>> = None;
+        if self.consume_token(Token::LeftParen) {
+            let mut names = Vec::new();
+            loop {
+                names.push(self.identifier()?);
+                if !self.consume_token(Token::Comma) {
+                    break;
+                }
+            }
+            self.consume_token_or_error(Token::RightParen)?;
+            column_names = Some(names);
+        }
         self.consume_token_or_error(Token::Keyword(Keyword::Values))?;
         self.consume_token_or_error(Token::LeftParen)?;
         let mut values = Vec::new();
@@ -470,7 +483,7 @@ impl Parser {
             }
         }
         self.consume_token_or_error(Token::RightParen)?;
-        Ok(InsertStatementAST { table_name, values })
+        Ok(InsertStatementAST { table_name, column_names, values })
     }
     fn delete_statement(&mut self) -> Result<DeleteStatementAST> {
         self.consume_token_or_error(Token::Keyword(Keyword::Delete))?;
@@ -956,6 +969,38 @@ mod tests {
             statement,
             StatementAST::Insert(InsertStatementAST {
                 table_name: String::from("users"),
+                column_names: None,
+                values: vec![
+                    ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Integer(IntegerValue(1)),
+                    }),
+                    ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Varchar(VarcharValue(String::from("foo"))),
+                    }),
+                    ExpressionAST::Literal(LiteralExpressionAST {
+                        value: Value::Boolean(BooleanValue(true)),
+                    }),
+                ],
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_insert_with_columns() -> Result<()> {
+        let sql = "INSERT INTO users (id, name, is_deleted) VALUES (1, 'foo', true)";
+        let mut parser = Parser::new(tokenize(&mut sql.chars().peekable())?);
+
+        let statement = parser.parse()?;
+        assert_eq!(
+            statement,
+            StatementAST::Insert(InsertStatementAST {
+                table_name: String::from("users"),
+                column_names: Some(vec![
+                    String::from("id"),
+                    String::from("name"),
+                    String::from("is_deleted"),
+                ]),
                 values: vec![
                     ExpressionAST::Literal(LiteralExpressionAST {
                         value: Value::Integer(IntegerValue(1)),
